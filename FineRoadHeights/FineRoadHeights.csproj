@@ -54,8 +54,10 @@
     <Compile Include="FineRoadHeightsLoadingExtension.cs" />
     <Compile Include="FineRoadHeightsMod.cs" />
     <Compile Include="NetToolFine.cs" />
+    <Compile Include="PanelReplacer.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="PublicTransportFinePanel.cs" />
+    <Compile Include="RoadOptionFinePanel.cs" />
     <Compile Include="RoadsFinePanel.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

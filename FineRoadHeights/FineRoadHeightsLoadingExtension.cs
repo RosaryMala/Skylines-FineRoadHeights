@@ -29,6 +29,14 @@ namespace FineRoadHeights
                 transportFinePanel.m_OptionsBar = transportPanel.m_OptionsBar;
                 Object.Destroy(transportPanel);
             }
+            //And finally with the road options panel.
+            RoadsOptionPanel[] roadsOptionPanels = UnityEngine.Object.FindObjectsOfType<RoadsOptionPanel>();
+            foreach (RoadsOptionPanel roadsOptionPanel in roadsOptionPanels)
+            {
+                GameObject roadsOptionsPanelObject = roadsOptionPanel.gameObject;
+                RoadsOptionFinePanel roadsOptionFinePanel = roadsOptionsPanelObject.AddComponent<RoadsOptionFinePanel>();
+                Object.Destroy(roadsOptionPanel);
+            }
             //Find the tool controller, re-make its tool list, and force a re-make of the ToolsModifierControl tool list.
             ToolController toolController = UnityEngine.Object.FindObjectOfType<ToolController>();
             if (toolController != null)
@@ -41,6 +49,13 @@ namespace FineRoadHeights
                 FieldInfo toolModifierDictionary = typeof(ToolsModifierControl).GetField("m_Tools", BindingFlags.Static | BindingFlags.NonPublic);
                 if (toolModifierDictionary != null)
                     toolModifierDictionary.SetValue(null, null);
+            }
+
+            if(mode == LoadMode.LoadAsset || mode == LoadMode.NewAsset) // || mode == LoadMode.LoadMap || mode == LoadMode.NewMap)
+            {
+                GameObject panelReplacer = UnityEngine.Object.Instantiate(new GameObject());
+                panelReplacer.AddComponent<PanelReplacer>();
+                panelReplacer.name = "PanelReplacer";
             }
         }
     }
