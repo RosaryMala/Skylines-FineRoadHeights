@@ -47,6 +47,14 @@ public class NetToolFine : ToolBase
     private HashSet<ushort> m_upgradedSegments;
     private bool m_upgrading;
 
+    static void GetAdjustedElevationLimits(NetAI netAI, out int min, out int max)
+    {
+        netAI.GetElevationLimits(out min, out max);
+        min = Mathf.RoundToInt(min * 12 / terrainStep);
+        max = Mathf.RoundToInt(max * 12 / terrainStep);
+        //min = Mathf.Min(min, -4); //this would make below ground level roads possible, but it glitches like hell.
+    }
+
     protected override void Awake()
     {
         base.Awake();
@@ -566,7 +574,7 @@ public class NetToolFine : ToolBase
             }
             nodeBuffer.m_buffer[j] = position9;
         }
-        info.m_netAI.GetElevationLimits(out prefabMinElevation, out prefabMaxElevation);
+        GetAdjustedElevationLimits(info.m_netAI, out prefabMinElevation, out prefabMaxElevation);
         if (prefabMaxElevation > prefabMinElevation)
         {
             int nextIndex;
@@ -1649,9 +1657,7 @@ public class NetToolFine : ToolBase
         {
             return 0f;
         }
-        info.m_netAI.GetElevationLimits(out min_height, out max_height);
-        min_height = Mathf.RoundToInt(min_height * 12 / terrainStep);
-        max_height = Mathf.RoundToInt(max_height * 12 / terrainStep);
+        GetAdjustedElevationLimits(info.m_netAI, out min_height, out max_height);
         if (min_height == max_height)
         {
             return 0f;
@@ -2599,7 +2605,7 @@ public class NetToolFine : ToolBase
             {
                 int num;
                 int num2;
-                prefab.m_netAI.GetElevationLimits(out num, out num2);
+                GetAdjustedElevationLimits(prefab.m_netAI, out num, out num2);
                 if (num2 > num)
                 {
                     GuideController controller2 = Singleton<GuideManager>.instance.m_properties;
@@ -3417,9 +3423,7 @@ public class NetToolFine : ToolBase
                     this.info = this.f_this.m_prefab;
                     if (this.info != null)
                     {
-                        this.info.m_netAI.GetElevationLimits(out this.min_height, out this.max_height);
-                        min_height = Mathf.RoundToInt(min_height * 12 / terrainStep);
-                        max_height = Mathf.RoundToInt(max_height * 12 / terrainStep);
+                        GetAdjustedElevationLimits(this.info.m_netAI, out this.min_height, out this.max_height);
                         if (this.max_height > this.min_height)
                         {
                             this.elevation = Mathf.Clamp(Mathf.Clamp(this.f_this.m_elevation, this.min_height, this.max_height) + this.delta, this.min_height, this.max_height);
