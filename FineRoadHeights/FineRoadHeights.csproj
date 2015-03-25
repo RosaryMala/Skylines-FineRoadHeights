@@ -51,6 +51,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="BeautificationFinePanel.cs" />
     <Compile Include="FineRoadHeightsLoadingExtension.cs" />
     <Compile Include="FineRoadHeightsMod.cs" />
     <Compile Include="NetToolFine.cs" />

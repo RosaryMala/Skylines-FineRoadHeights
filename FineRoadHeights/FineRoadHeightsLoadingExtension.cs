@@ -7,7 +7,7 @@ namespace FineRoadHeights
 {
     public class FineRoadHeightsLoadingExtension : LoadingExtensionBase
     {
-        public override void OnLevelLoaded(LoadMode mode)
+        public static void ReplacePanels()
         {
             //replace all roads panels in the game with our own, that call modified NetTool
             RoadsPanel[] roadsPanels = UnityEngine.Object.FindObjectsOfType<RoadsPanel>();
@@ -29,6 +29,21 @@ namespace FineRoadHeights
                 transportFinePanel.m_OptionsBar = transportPanel.m_OptionsBar;
                 Object.Destroy(transportPanel);
             }
+            //Do the same with beautification panels
+            BeautificationPanel[] beautificationPanels = UnityEngine.Object.FindObjectsOfType<BeautificationPanel>();
+            foreach (var beautificationPanel in beautificationPanels)
+            {
+                GameObject beautificationPanelObject = beautificationPanel.gameObject;
+                BeautificationFinePanel beautificationFinePanel = beautificationPanelObject.AddComponent<BeautificationFinePanel>();
+                beautificationFinePanel.m_DefaultInfoTooltipAtlas = beautificationPanel.m_DefaultInfoTooltipAtlas;
+                beautificationFinePanel.m_OptionsBar = beautificationPanel.m_OptionsBar;
+                Object.Destroy(beautificationPanel);
+            }
+        }
+        public override void OnLevelLoaded(LoadMode mode)
+        {
+            ReplacePanels();
+
             //And finally with the road options panel.
             RoadsOptionPanel[] roadsOptionPanels = UnityEngine.Object.FindObjectsOfType<RoadsOptionPanel>();
             foreach (RoadsOptionPanel roadsOptionPanel in roadsOptionPanels)
