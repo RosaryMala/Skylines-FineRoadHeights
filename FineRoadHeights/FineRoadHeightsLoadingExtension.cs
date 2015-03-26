@@ -42,7 +42,9 @@ namespace FineRoadHeights
         }
         public override void OnLevelLoaded(LoadMode mode)
         {
-            ReplacePanels();
+            //Turns out this is the wrong way to do it.
+            //ReplacePanels();
+            
 
             //And finally with the road options panel.
             RoadsOptionPanel[] roadsOptionPanels = UnityEngine.Object.FindObjectsOfType<RoadsOptionPanel>();
@@ -66,7 +68,7 @@ namespace FineRoadHeights
                     toolModifierDictionary.SetValue(null, null);
             }
 
-            if(mode == LoadMode.LoadAsset || mode == LoadMode.NewAsset) // || mode == LoadMode.LoadMap || mode == LoadMode.NewMap)
+            //if(mode == LoadMode.LoadAsset || mode == LoadMode.NewAsset) // || mode == LoadMode.LoadMap || mode == LoadMode.NewMap)
             {
                 GameObject panelReplacer = UnityEngine.Object.Instantiate(new GameObject());
                 panelReplacer.AddComponent<PanelReplacer>();
