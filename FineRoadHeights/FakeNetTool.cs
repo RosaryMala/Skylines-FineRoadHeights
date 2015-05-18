@@ -16,7 +16,7 @@ namespace FineRoadHeights
 
 		public float GetElevation (NetInfo prefab)
 		{
-			NetTool netTool = UnityEngine.Object.FindObjectOfType<ToolController>().gameObject.GetComponent<NetTool>();
+			NetTool netTool = ToolsModifierControl.GetTool<NetTool>();
 			FieldInfo m_elevation = typeof(NetTool).GetField ("m_elevation", PrivateInstance);
 
 			if (prefab == null)
@@ -36,7 +36,7 @@ namespace FineRoadHeights
 		}
 		public bool CreateNodeImpl (bool switchDirection)
 		{
-			NetTool netTool = UnityEngine.Object.FindObjectOfType<ToolController>().gameObject.GetComponent<NetTool>();
+			NetTool netTool = ToolsModifierControl.GetTool<NetTool>();
 			FieldInfo m_elevation = typeof(NetTool).GetField ("m_elevation", PrivateInstance);
 			FieldInfo m_switchingDir = typeof(NetTool).GetField ("m_switchingDir", PrivateInstance);
 			FieldInfo m_controlPoints = typeof(NetTool).GetField ("m_controlPoints", PrivateInstance);
@@ -121,7 +121,7 @@ namespace FineRoadHeights
 		}
 		public bool CreateNodeImpl(NetInfo info, bool needMoney, bool switchDirection, NetTool.ControlPoint startPoint, NetTool.ControlPoint middlePoint, NetTool.ControlPoint endPoint)
 		{
-			NetTool netTool = UnityEngine.Object.FindObjectOfType<ToolController>().gameObject.GetComponent<NetTool>();
+			NetTool netTool = ToolsModifierControl.GetTool<NetTool>();
 			FieldInfo m_elevation = typeof(NetTool).GetField ("m_elevation", PrivateInstance);
 			FieldInfo m_controlPoints = typeof(NetTool).GetField ("m_controlPoints", PrivateInstance);
 			FieldInfo m_controlPointCount = typeof(NetTool).GetField ("m_controlPointCount", PrivateInstance);
@@ -235,7 +235,7 @@ namespace FineRoadHeights
 		}
 		public static ToolBase.ToolErrors CreateNode(NetInfo info, NetTool.ControlPoint startPoint, NetTool.ControlPoint middlePoint, NetTool.ControlPoint endPoint, FastList<NetTool.NodePosition> nodeBuffer, int maxSegments, bool test, bool visualize, bool autoFix, bool needMoney, bool invert, bool switchDir, ushort relocateBuildingID, out ushort firstNode, out ushort lastNode, out ushort segment, out int cost, out int productionRate)
 		{
-			NetTool netTool = UnityEngine.Object.FindObjectOfType<ToolController>().gameObject.GetComponent<NetTool>();
+			NetTool netTool = ToolsModifierControl.GetTool<NetTool>();
 			MethodInfo CheckStartAndEnd = typeof(NetTool).GetMethod ("CheckStartAndEnd", PrivateStatic);
 			MethodInfo CanAddSegment = typeof(NetTool).GetMethod ("CanAddSegment", PrivateStatic);
 			MethodInfo CanAddNode = typeof(NetTool).GetMethod ("CanAddNode", PrivateStatic, null, new Type[]{typeof(ushort),typeof(Vector3),typeof(Vector3),typeof(bool),typeof(ulong[])}, null);
