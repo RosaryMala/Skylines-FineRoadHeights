@@ -7,11 +7,11 @@ namespace FineRoadHeights
     public class FineRoadHeightsLoadingExtension : LoadingExtensionBase
     {
         public override void OnLevelLoaded(LoadMode mode)
-		{
-			RedirectionHelper.RedirectCalls (typeof(NetTool), typeof(FakeNetTool), "GetElevation", true);
-			RedirectionHelper.RedirectCalls (typeof(NetTool), typeof(FakeNetTool), "CreateNodeImpl", new Type[]{ typeof(bool) }, true);
-			RedirectionHelper.RedirectCalls (typeof(NetTool), typeof(FakeNetTool), "CreateNodeImpl", 
-				new Type[] {
+        {
+            RedirectionHelper.RedirectCalls(typeof(NetTool), typeof(FakeNetTool), "GetElevation", true);
+            RedirectionHelper.RedirectCalls(typeof(NetTool), typeof(FakeNetTool), "CreateNodeImpl", new Type[] { typeof(bool) }, true);
+            RedirectionHelper.RedirectCalls(typeof(NetTool), typeof(FakeNetTool), "CreateNodeImpl",
+                new Type[] {
 					typeof(NetInfo),
 					typeof(bool),
 					typeof(bool),
@@ -19,8 +19,8 @@ namespace FineRoadHeights
 					typeof(NetTool.ControlPoint),
 					typeof(NetTool.ControlPoint)
 				}, true);
-			RedirectionHelper.RedirectCalls (typeof(NetTool), typeof(FakeNetTool), "CreateNode", 
-				new Type[] {
+            RedirectionHelper.RedirectCalls(typeof(NetTool), typeof(FakeNetTool), "CreateNode",
+                new Type[] {
 					typeof(NetInfo),
 					typeof(NetTool.ControlPoint),
 					typeof(NetTool.ControlPoint),
@@ -40,6 +40,7 @@ namespace FineRoadHeights
 					typeof(int).MakeByRefType(),
 					typeof(int).MakeByRefType(),
 				}, false);
+            RedirectionHelper.RedirectCalls(typeof(NetTool), typeof(FakeNetTool), "ChangeElevation", new Type[] { typeof(int) }, true);
         }
     }
 }
