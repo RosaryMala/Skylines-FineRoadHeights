@@ -40,7 +40,7 @@ namespace FineRoadHeights
 					typeof(int).MakeByRefType(),
 					typeof(int).MakeByRefType(),
 				}, false);
-            RedirectionHelper.RedirectCalls(typeof(NetTool), typeof(FakeNetTool), "ChangeElevation", new Type[] { typeof(int) }, true);
+            RedirectionHelper.RedirectCalls(typeof(NetTool), typeof(FakeNetTool), "OnToolGUI", true);
         }
     }
 }

@@ -11,6 +11,7 @@ using UnityEngine;
 namespace FineRoadHeights
 {
 	public class FakeNetTool
+
 	{
 		static BindingFlags PrivateInstance = BindingFlags.NonPublic | BindingFlags.Instance;
 		static BindingFlags PrivateStatic = BindingFlags.NonPublic | BindingFlags.Static;
@@ -1118,7 +1119,72 @@ namespace FineRoadHeights
             return toolError;
         }
 
-        public IEnumerator<bool> ChangeElevation(int delta)
+        public void OnToolGUI()
+        {
+            NetTool netTool = UnityEngine.Object.FindObjectOfType<ToolController>().gameObject.GetComponent<NetTool>();
+            FieldInfo m_toolController = typeof(NetInfo).GetField("m_toolController", PrivateInstance);
+            FieldInfo m_cachedErrors = typeof(NetInfo).GetField("m_cachedErrors", PrivateInstance);
+            FieldInfo m_buildElevationUp = typeof(NetInfo).GetField("m_buildElevationUp", PrivateInstance);
+            FieldInfo m_buildElevationDown = typeof(NetInfo).GetField("m_buildElevationDown", PrivateInstance);
+
+            bool isInsideUI = ((ToolController)m_toolController.GetValue(netTool)).IsInsideUI;
+            Event current = Event.current;
+            if (current.type == EventType.MouseDown)
+            {
+                if (!isInsideUI)
+                {
+                    if (current.button == 0)
+                    {
+                        if (((ToolBase.ToolErrors)m_cachedErrors.GetValue(netTool)) == ToolBase.ToolErrors.None)
+                        {
+                            Singleton<SimulationManager>.instance.AddAction<bool>(this.CreateNode(false));
+                        }
+                        else
+                        {
+                            Singleton<SimulationManager>.instance.AddAction(this.CreateFailed());
+                        }
+                    }
+                    else if (current.button == 1)
+                    {
+                        if (netTool.m_mode == NetTool.Mode.Upgrade)
+                        {
+                            Singleton<SimulationManager>.instance.AddAction<bool>(this.CreateNode(true));
+                        }
+                        else
+                        {
+                            Singleton<SimulationManager>.instance.AddAction(this.CancelNode());
+                        }
+                    }
+                }
+            }
+            else if (current.type == EventType.MouseUp)
+            {
+                if (current.button == 0 || current.button == 1)
+                {
+                    Singleton<SimulationManager>.instance.AddAction(this.CancelUpgrading());
+                }
+            }
+            else if (((SavedInputKey)m_buildElevationUp.GetValue(netTool)).IsPressed(current))
+            {
+                Singleton<SimulationManager>.instance.AddAction<bool>(this.ChangeElevation(1));
+            }
+            else if (((SavedInputKey)m_buildElevationDown.GetValue(netTool)).IsPressed(current))
+            {
+                Singleton<SimulationManager>.instance.AddAction<bool>(this.ChangeElevation(-1));
+            }
+        }
+
+        [DebuggerHidden]
+        private IEnumerator<bool> CreateNode(bool switchDirection)
+        {
+            NetTool netTool = UnityEngine.Object.FindObjectOfType<ToolController>().gameObject.GetComponent<NetTool>();
+            CreateNode_Iterator createNode_Iterator = new CreateNode_Iterator();
+            createNode_Iterator.switchDirection = switchDirection;
+            createNode_Iterator.parentTool = netTool;
+            return createNode_Iterator;
+        }
+        [DebuggerHidden]
+        private IEnumerator<bool> ChangeElevation(int delta)
         {
             Debug.Log("Changing elevation by " + delta);
             NetTool netTool = UnityEngine.Object.FindObjectOfType<ToolController>().gameObject.GetComponent<NetTool>();
@@ -1126,6 +1192,30 @@ namespace FineRoadHeights
             changeElevation_Iterator.delta = delta;
             changeElevation_Iterator.parentTool = netTool;
             return changeElevation_Iterator;
+        }
+        [DebuggerHidden]
+        private IEnumerator CreateFailed()
+        {
+            NetTool netTool = UnityEngine.Object.FindObjectOfType<ToolController>().gameObject.GetComponent<NetTool>();
+            CreateFailed_Iterator createFailed_Iterator = new CreateFailed_Iterator();
+            createFailed_Iterator.parentTool = netTool;
+            return createFailed_Iterator;
+        }
+        [DebuggerHidden]
+        private IEnumerator CancelNode()
+        {
+            NetTool netTool = UnityEngine.Object.FindObjectOfType<ToolController>().gameObject.GetComponent<NetTool>();
+            CancelNode_Iterator cancelNode_Iterator = new CancelNode_Iterator();
+            cancelNode_Iterator.parentTool = netTool;
+            return cancelNode_Iterator;
+        }
+        [DebuggerHidden]
+        private IEnumerator CancelUpgrading()
+        {
+            NetTool netTool = UnityEngine.Object.FindObjectOfType<ToolController>().gameObject.GetComponent<NetTool>();
+            CancelUpgrading_Iterator cancelUpgrading_Iterator = new CancelUpgrading_Iterator();
+            cancelUpgrading_Iterator.parentTool = netTool;
+            return cancelUpgrading_Iterator;
         }
 
         private sealed class ChangeElevation_Iterator : IEnumerator, IDisposable, IEnumerator<bool>
@@ -1199,7 +1289,260 @@ namespace FineRoadHeights
                 throw new NotSupportedException();
             }
         }
-    }
+        private sealed class CreateNode_Iterator : IEnumerator, IDisposable, IEnumerator<bool>
+        {
+            internal bool switchDirection;
+            internal int SPC;
+            internal bool current;
+            internal NetTool parentTool;
+            bool IEnumerator<bool>.Current
+            {
+                [DebuggerHidden]
+                get
+                {
+                    return this.current;
+                }
+            }
+            object IEnumerator.Current
+            {
+                [DebuggerHidden]
+                get
+                {
+                    return this.current;
+                }
+            }
+            public bool MoveNext()
+            {
+                uint num = (uint)this.SPC;
+                this.SPC = -1;
+                switch (num)
+                {
+                    case 0u:
+                        this.current = (bool)(typeof(NetTool).GetMethod("CreateNodeImpl", PrivateInstance).Invoke(parentTool, new object[] { this.switchDirection }));
+                        this.SPC = 1;
+                        return true;
+                    case 1u:
+                        this.SPC = -1;
+                        break;
+                }
+                return false;
+            }
+            [DebuggerHidden]
+            public void Dispose()
+            {
+                this.SPC = -1;
+            }
+            [DebuggerHidden]
+            public void Reset()
+            {
+                throw new NotSupportedException();
+            }
+        }
+        private sealed class CreateFailed_Iterator : IEnumerator, IDisposable, IEnumerator<object>
+        {
+            internal NetInfo info;
+            internal GuideController guideController;
+            internal int SPC;
+            internal object current;
+            internal NetTool parentTool;
+            object IEnumerator<object>.Current
+            {
+                [DebuggerHidden]
+                get
+                {
+                    return this.current;
+                }
+            }
+            object IEnumerator.Current
+            {
+                [DebuggerHidden]
+                get
+                {
+                    return this.current;
+                }
+            }
+            public bool MoveNext()
+            {
+                FieldInfo m_buildErrors = typeof(NetTool).GetField("m_buildErrors", PrivateInstance);
 
+                uint num = (uint)this.SPC;
+                this.SPC = -1;
+                switch (num)
+                {
+                    case 0u:
+                        this.info = this.parentTool.m_prefab;
+                        if (this.info != null)
+                        {
+                            if (((ToolBase.ToolErrors)m_buildErrors.GetValue(parentTool) & ToolBase.ToolErrors.NotEnoughMoney) != ToolBase.ToolErrors.None)
+                            {
+                                this.guideController = Singleton<GuideManager>.instance.m_properties;
+                                if (this.guideController != null)
+                                {
+                                    Singleton<GuideManager>.instance.m_notEnoughMoney.Activate(this.guideController.m_notEnoughMoney);
+                                }
+                            }
+                            else if (this.parentTool.m_mode == NetTool.Mode.Upgrade)
+                            {
+                                this.info.m_netAI.UpgradeFailed();
+                            }
+                        }
+                        this.current = 0;
+                        this.SPC = 1;
+                        return true;
+                    case 1u:
+                        this.SPC = -1;
+                        break;
+                }
+                return false;
+            }
+            [DebuggerHidden]
+            public void Dispose()
+            {
+                this.SPC = -1;
+            }
+            [DebuggerHidden]
+            public void Reset()
+            {
+                throw new NotSupportedException();
+            }
+        }
+        private sealed class CancelNode_Iterator : IEnumerator, IDisposable, IEnumerator<object>
+        {
+            internal int SPC;
+            internal object current;
+            internal NetTool parentTool;
+            object IEnumerator<object>.Current
+            {
+                [DebuggerHidden]
+                get
+                {
+                    return this.current;
+                }
+            }
+            object IEnumerator.Current
+            {
+                [DebuggerHidden]
+                get
+                {
+                    return this.current;
+                }
+            }
+            public bool MoveNext()
+            {
+                FieldInfo m_upgrading = typeof(NetTool).GetField("m_upgrading", PrivateInstance);
+                FieldInfo m_switchingDir = typeof(NetTool).GetField("m_switchingDir", PrivateInstance);
+                FieldInfo m_upgradedSegments = typeof(NetTool).GetField("m_upgradedSegments", PrivateInstance);
+                FieldInfo m_controlPointCount = typeof(NetTool).GetField("m_controlPointCount", PrivateInstance);
+                uint num = (uint)this.SPC;
+                this.SPC = -1;
+                switch (num)
+                {
+                    case 0u:
+                        m_upgrading.SetValue(parentTool, false);
+                        m_switchingDir.SetValue(parentTool, false);
+                        while (!Monitor.TryEnter((HashSet<ushort>)m_upgradedSegments.GetValue(parentTool), SimulationManager.SYNCHRONIZE_TIMEOUT))
+                        {
+                        }
+                        try
+                        {
+                            ((HashSet<ushort>)m_upgradedSegments.GetValue(parentTool)).Clear();
+                        }
+                        finally
+                        {
+                            Monitor.Exit((HashSet<ushort>)m_upgradedSegments.GetValue(parentTool));
+                        }
+                        if (this.parentTool.m_mode == NetTool.Mode.Upgrade)
+                        {
+                            m_controlPointCount.SetValue(parentTool, 0);
+                        }
+                        else
+                        {
+                            m_controlPointCount.SetValue(parentTool, Mathf.Max(0, (int)m_controlPointCount.GetValue(parentTool) - 1));
+                        }
+                        this.current = 0;
+                        this.SPC = 1;
+                        return true;
+                    case 1u:
+                        this.SPC = -1;
+                        break;
+                }
+                return false;
+            }
+            [DebuggerHidden]
+            public void Dispose()
+            {
+                this.SPC = -1;
+            }
+            [DebuggerHidden]
+            public void Reset()
+            {
+                throw new NotSupportedException();
+            }
+        }
+        private sealed class CancelUpgrading_Iterator : IEnumerator, IDisposable, IEnumerator<object>
+        {
+            internal int SPC;
+            internal object current;
+            internal NetTool parentTool;
+            object IEnumerator<object>.Current
+            {
+                [DebuggerHidden]
+                get
+                {
+                    return this.current;
+                }
+            }
+            object IEnumerator.Current
+            {
+                [DebuggerHidden]
+                get
+                {
+                    return this.current;
+                }
+            }
+            public bool MoveNext()
+            {
+                FieldInfo m_upgrading = typeof(NetTool).GetField("m_upgrading", PrivateInstance);
+                FieldInfo m_switchingDir = typeof(NetTool).GetField("m_upgrading", PrivateInstance);
+                FieldInfo m_upgradedSegments = typeof(NetTool).GetField("m_upgrading", PrivateInstance);
+                uint num = (uint)this.SPC;
+                this.SPC = -1;
+                switch (num)
+                {
+                    case 0u:
+                        m_upgrading.SetValue(parentTool, false);
+                        m_switchingDir.SetValue(parentTool, false);
+                        while (!Monitor.TryEnter((HashSet<ushort>)m_upgradedSegments.GetValue(parentTool), SimulationManager.SYNCHRONIZE_TIMEOUT))
+                        {
+                        }
+                        try
+                        {
+                            ((HashSet<ushort>)m_upgradedSegments.GetValue(parentTool)).Clear();
+                        }
+                        finally
+                        {
+                            Monitor.Exit((HashSet<ushort>)m_upgradedSegments.GetValue(parentTool));
+                        }
+                        this.current = 0;
+                        this.SPC = 1;
+                        return true;
+                    case 1u:
+                        this.SPC = -1;
+                        break;
+                }
+                return false;
+            }
+            [DebuggerHidden]
+            public void Dispose()
+            {
+                this.SPC = -1;
+            }
+            [DebuggerHidden]
+            public void Reset()
+            {
+                throw new NotSupportedException();
+            }
+        }
+    }
 }
 
