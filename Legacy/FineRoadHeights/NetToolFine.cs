@@ -47,6 +47,12 @@ public class NetToolFine : ToolBase
     private HashSet<ushort> m_upgradedSegments;
     private bool m_upgrading;
 
+    /// <summary>
+    /// Asjusts the prefab elevation limits to take into consideration the elevation step.
+    /// </summary>
+    /// <param name="netAI">Prefab to get the limits from.</param>
+    /// <param name="min"></param>
+    /// <param name="max"></param>
     static void GetAdjustedElevationLimits(NetAI netAI, out int min, out int max)
     {
         netAI.GetElevationLimits(out min, out max);
@@ -55,6 +61,7 @@ public class NetToolFine : ToolBase
         //min = Mathf.Min(min, -4); //this would make below ground level roads possible, but it glitches like hell.
     }
 
+    //Unmodified
     protected override void Awake()
     {
         base.Awake();
@@ -69,35 +76,36 @@ public class NetToolFine : ToolBase
         this.m_buildElevationDown = new SavedInputKey(Settings.buildElevationDown, Settings.gameSettingsFile, DefaultSettings.buildElevationDown, true);
     }
 
+    //Unmodified
     private static bool CanAddNode(ushort segmentID, ushort nodeID, Vector3 position, Vector3 direction)
     {
-        NetNode node = Singleton<NetManager>.instance.m_nodes.m_buffer[nodeID];
-        if ((node.m_flags & NetNode.Flags.Double) != NetNode.Flags.None)
+        NetNode netNode = Singleton<NetManager>.instance.m_nodes.m_buffer[(int)nodeID];
+        if ((netNode.m_flags & NetNode.Flags.Double) != NetNode.Flags.None)
         {
             return false;
         }
-        if ((node.m_flags & (NetNode.Flags.Untouchable | NetNode.Flags.Moveable)) != NetNode.Flags.Moveable)
+        if ((netNode.m_flags & (NetNode.Flags.Moveable | NetNode.Flags.Untouchable)) == NetNode.Flags.Moveable)
         {
-            NetInfo info = node.Info;
-            if (!info.m_netAI.CanModify())
-            {
-                return false;
-            }
-            float minNodeDistance = info.GetMinNodeDistance();
-            Vector2 vector = new Vector2(node.m_position.x - position.x, node.m_position.z - position.z);
-            if (vector.magnitude < minNodeDistance)
-            {
-                return false;
-            }
+            return true;
         }
-        return true;
+        NetInfo info = Singleton<NetManager>.instance.m_segments.m_buffer[(int)segmentID].Info;
+        NetInfo info2 = netNode.Info;
+        if (!info.m_netAI.CanModify())
+        {
+            return false;
+        }
+        float minNodeDistance = info2.GetMinNodeDistance();
+        Vector2 vector = new Vector2(netNode.m_position.x - position.x, netNode.m_position.z - position.z);
+        float magnitude = vector.magnitude;
+        return magnitude >= minNodeDistance;
     }
 
+    //Unmodified
     private static bool CanAddNode(ushort segmentID, Vector3 position, Vector3 direction, bool checkDirection, ulong[] collidingSegmentBuffer)
     {
         bool flag = true;
-        NetSegment segment = Singleton<NetManager>.instance.m_segments.m_buffer[segmentID];
-        if ((segment.m_flags & NetSegment.Flags.Untouchable) != NetSegment.Flags.None)
+        NetSegment netSegment = Singleton<NetManager>.instance.m_segments.m_buffer[(int)segmentID];
+        if ((netSegment.m_flags & NetSegment.Flags.Untouchable) != NetSegment.Flags.None)
         {
             flag = false;
         }
@@ -105,52 +113,57 @@ public class NetToolFine : ToolBase
         {
             Vector3 vector;
             Vector3 vector2;
-            segment.GetClosestPositionAndDirection(position, out vector, out vector2);
-            float num = (direction.x * vector2.x) + (direction.z * vector2.z);
-            if ((num > 0.75f) || (num < -0.75f))
+            netSegment.GetClosestPositionAndDirection(position, out vector, out vector2);
+            float num = direction.x * vector2.x + direction.z * vector2.z;
+            if (num > 0.75f || num < -0.75f)
             {
                 flag = false;
             }
         }
-        if (!CanAddNode(segmentID, segment.m_startNode, position, direction))
+        if (!CanAddNode(segmentID, netSegment.m_startNode, position, direction))
         {
             flag = false;
         }
-        if (!CanAddNode(segmentID, segment.m_endNode, position, direction))
+        if (!CanAddNode(segmentID, netSegment.m_endNode, position, direction))
         {
             flag = false;
         }
-        if (!flag && (collidingSegmentBuffer != null))
+        if (!flag && collidingSegmentBuffer != null)
         {
-            collidingSegmentBuffer[segmentID >> 6] |= ((ulong) 1L) << segmentID;
+            collidingSegmentBuffer[segmentID >> 6] |= 1uL << (int)segmentID;
         }
         return flag;
     }
 
+    //Unmodified
     private static bool CanAddSegment(ushort nodeID, Vector3 direction, ulong[] collidingSegmentBuffer, ushort ignoreSegment)
     {
-        NetNode node = Singleton<NetManager>.instance.m_nodes.m_buffer[nodeID];
-        bool flag = ((node.m_flags & NetNode.Flags.Double) != NetNode.Flags.None) || ((node.m_flags & (NetNode.Flags.Untouchable | NetNode.Flags.Middle)) == (NetNode.Flags.Untouchable | NetNode.Flags.Middle));
-        bool flag2 = true;
+        NetNode netNode = Singleton<NetManager>.instance.m_nodes.m_buffer[(int)nodeID];
+        bool flag = (netNode.m_flags & NetNode.Flags.Double) != NetNode.Flags.None && ignoreSegment == 0;
+        bool result = true;
+        if ((netNode.m_flags & (NetNode.Flags.Middle | NetNode.Flags.Untouchable)) == (NetNode.Flags.Middle | NetNode.Flags.Untouchable) && netNode.CountSegments(NetSegment.Flags.Untouchable, ignoreSegment) >= 2)
+        {
+            flag = true;
+        }
         for (int i = 0; i < 8; i++)
         {
-            ushort index = node.GetSegment(i);
-            if ((index != 0) && (index != ignoreSegment))
+            ushort segment = netNode.GetSegment(i);
+            if (segment != 0 && segment != ignoreSegment)
             {
-                NetSegment segment = Singleton<NetManager>.instance.m_segments.m_buffer[index];
-                Vector3 vector = (nodeID != segment.m_startNode) ? segment.m_endDirection : segment.m_startDirection;
-                float num3 = (direction.x * vector.x) + (direction.z * vector.z);
-                if (flag || (num3 > 0.75f))
+                NetSegment netSegment = Singleton<NetManager>.instance.m_segments.m_buffer[(int)segment];
+                Vector3 vector = (nodeID != netSegment.m_startNode) ? netSegment.m_endDirection : netSegment.m_startDirection;
+                float num = direction.x * vector.x + direction.z * vector.z;
+                if (flag || num > 0.75f)
                 {
                     if (collidingSegmentBuffer != null)
                     {
-                        collidingSegmentBuffer[index >> 6] |= ((ulong) 1L) << index;
+                        collidingSegmentBuffer[segment >> 6] |= 1uL << (int)segment;
                     }
-                    flag2 = false;
+                    result = false;
                 }
             }
         }
-        return flag2;
+        return result;
     }
 
     [DebuggerHidden]
@@ -165,253 +178,261 @@ public class NetToolFine : ToolBase
         return new TCancelUpgradingTc__Iterator62 { TTf__this = this };
     }
 
+    //Unmodified
     private static ToolBase.ToolErrors CanCreateSegment(NetInfo segmentInfo, ushort startNode, ushort upgrading, Vector3 endPos, Vector3 startDir, Vector3 endDir, ulong[] collidingSegmentBuffer)
     {
-        ToolBase.ToolErrors none = ToolBase.ToolErrors.None;
+        ToolBase.ToolErrors toolErrors = ToolBase.ToolErrors.None;
         NetManager instance = Singleton<NetManager>.instance;
         for (int i = 0; i < 8; i++)
         {
-            ushort segment = instance.m_nodes.m_buffer[startNode].GetSegment(i);
-            if ((segment != 0) && (segment != upgrading))
+            ushort segment = instance.m_nodes.m_buffer[(int)startNode].GetSegment(i);
+            if (segment != 0 && segment != upgrading)
             {
+                NetInfo info = instance.m_segments.m_buffer[(int)segment].Info;
+                bool flag = instance.m_segments.m_buffer[(int)segment].m_startNode == startNode;
+                ushort num = (!flag) ? instance.m_segments.m_buffer[(int)segment].m_endNode : instance.m_segments.m_buffer[(int)segment].m_startNode;
+                ushort num2 = (!flag) ? instance.m_segments.m_buffer[(int)segment].m_startNode : instance.m_segments.m_buffer[(int)segment].m_endNode;
+                Vector3 position = instance.m_nodes.m_buffer[(int)num].m_position;
+                Vector3 position2 = instance.m_nodes.m_buffer[(int)num2].m_position;
+                Vector3 vector = (!flag) ? instance.m_segments.m_buffer[(int)segment].m_endDirection : instance.m_segments.m_buffer[(int)segment].m_startDirection;
+                Vector3 vector2 = (!flag) ? instance.m_segments.m_buffer[(int)segment].m_startDirection : instance.m_segments.m_buffer[(int)segment].m_endDirection;
+                Vector3 b;
+                Vector3 vector3;
                 bool flag2;
-                bool flag3;
+                NetSegment.CalculateCorner(info, position, position2, vector, vector2, segmentInfo, endPos, startDir, endDir, null, Vector3.zero, Vector3.zero, Vector3.zero, segment, num, false, true, out b, out vector3, out flag2);
+                Vector3 b2;
+                Vector3 vector4;
+                NetSegment.CalculateCorner(info, position, position2, vector, vector2, segmentInfo, endPos, startDir, endDir, null, Vector3.zero, Vector3.zero, Vector3.zero, segment, num, false, false, out b2, out vector4, out flag2);
+                Vector3 a;
                 Vector3 vector5;
+                bool flag3;
+                NetSegment.CalculateCorner(info, position2, position, vector2, vector, null, Vector3.zero, Vector3.zero, Vector3.zero, null, Vector3.zero, Vector3.zero, Vector3.zero, segment, num2, false, false, out a, out vector5, out flag3);
+                Vector3 a2;
                 Vector3 vector6;
-                Vector3 vector7;
-                Vector3 vector8;
-                Vector3 vector9;
-                Vector3 vector10;
-                Vector3 vector11;
-                Vector3 vector12;
-                NetInfo info = instance.m_segments.m_buffer[segment].Info;
-                bool flag = instance.m_segments.m_buffer[segment].m_startNode == startNode;
-                ushort index = !flag ? instance.m_segments.m_buffer[segment].m_endNode : instance.m_segments.m_buffer[segment].m_startNode;
-                ushort num4 = !flag ? instance.m_segments.m_buffer[segment].m_startNode : instance.m_segments.m_buffer[segment].m_endNode;
-                Vector3 position = instance.m_nodes.m_buffer[index].m_position;
-                Vector3 vector2 = instance.m_nodes.m_buffer[num4].m_position;
-                Vector3 vector3 = !flag ? instance.m_segments.m_buffer[segment].m_endDirection : instance.m_segments.m_buffer[segment].m_startDirection;
-                Vector3 vector4 = !flag ? instance.m_segments.m_buffer[segment].m_startDirection : instance.m_segments.m_buffer[segment].m_endDirection;
-                NetSegment.CalculateCorner(info, position, vector2, vector3, vector4, segmentInfo, endPos, startDir, endDir, null, Vector3.zero, Vector3.zero, Vector3.zero, segment, index, false, true, out vector5, out vector6, out flag2);
-                NetSegment.CalculateCorner(info, position, vector2, vector3, vector4, segmentInfo, endPos, startDir, endDir, null, Vector3.zero, Vector3.zero, Vector3.zero, segment, index, false, false, out vector7, out vector8, out flag2);
-                NetSegment.CalculateCorner(info, vector2, position, vector4, vector3, null, Vector3.zero, Vector3.zero, Vector3.zero, null, Vector3.zero, Vector3.zero, Vector3.zero, segment, num4, false, false, out vector9, out vector10, out flag3);
-                NetSegment.CalculateCorner(info, vector2, position, vector4, vector3, null, Vector3.zero, Vector3.zero, Vector3.zero, null, Vector3.zero, Vector3.zero, Vector3.zero, segment, num4, false, true, out vector11, out vector12, out flag3);
-                if ((((vector9.x - vector5.x) * vector3.x) + ((vector9.z - vector5.z) * vector3.z)) < 2f)
+                NetSegment.CalculateCorner(info, position2, position, vector2, vector, null, Vector3.zero, Vector3.zero, Vector3.zero, null, Vector3.zero, Vector3.zero, Vector3.zero, segment, num2, false, true, out a2, out vector6, out flag3);
+                if ((a.x - b.x) * vector.x + (a.z - b.z) * vector.z < 2f)
                 {
-                    collidingSegmentBuffer[segment >> 6] |= ((ulong) 1L) << segment;
-                    none |= ToolBase.ToolErrors.FirstVisibleError;
+                    collidingSegmentBuffer[segment >> 6] |= 1uL << (int)segment;
+                    toolErrors |= ToolBase.ToolErrors.ObjectCollision;
                 }
-                if ((((vector5.x - vector9.x) * vector4.x) + ((vector5.z - vector9.z) * vector4.z)) < 2f)
+                if ((b.x - a.x) * vector2.x + (b.z - a.z) * vector2.z < 2f)
                 {
-                    collidingSegmentBuffer[segment >> 6] |= ((ulong) 1L) << segment;
-                    none |= ToolBase.ToolErrors.FirstVisibleError;
+                    collidingSegmentBuffer[segment >> 6] |= 1uL << (int)segment;
+                    toolErrors |= ToolBase.ToolErrors.ObjectCollision;
                 }
-                if ((((vector11.x - vector7.x) * vector3.x) + ((vector11.z - vector7.z) * vector3.z)) < 2f)
+                if ((a2.x - b2.x) * vector.x + (a2.z - b2.z) * vector.z < 2f)
                 {
-                    collidingSegmentBuffer[segment >> 6] |= ((ulong) 1L) << segment;
-                    none |= ToolBase.ToolErrors.FirstVisibleError;
+                    collidingSegmentBuffer[segment >> 6] |= 1uL << (int)segment;
+                    toolErrors |= ToolBase.ToolErrors.ObjectCollision;
                 }
-                if ((((vector7.x - vector11.x) * vector4.x) + ((vector7.z - vector11.z) * vector4.z)) < 2f)
+                if ((b2.x - a2.x) * vector2.x + (b2.z - a2.z) * vector2.z < 2f)
                 {
-                    collidingSegmentBuffer[segment >> 6] |= ((ulong) 1L) << segment;
-                    none |= ToolBase.ToolErrors.FirstVisibleError;
+                    collidingSegmentBuffer[segment >> 6] |= 1uL << (int)segment;
+                    toolErrors |= ToolBase.ToolErrors.ObjectCollision;
                 }
-                if ((((VectorUtils.LengthSqrXZ(vector9 - vector5) * info.m_maxSlope) * info.m_maxSlope) * 4f) < ((vector9.y - vector5.y) * (vector9.y - vector5.y)))
+                if (VectorUtils.LengthSqrXZ(a - b) * info.m_maxSlope * info.m_maxSlope * 4f < (a.y - b.y) * (a.y - b.y))
                 {
-                    collidingSegmentBuffer[segment >> 6] |= ((ulong) 1L) << segment;
-                    none |= ToolBase.ToolErrors.SlopeTooSteep;
+                    collidingSegmentBuffer[segment >> 6] |= 1uL << (int)segment;
+                    toolErrors |= ToolBase.ToolErrors.SlopeTooSteep;
                 }
-                if ((((VectorUtils.LengthSqrXZ(vector11 - vector7) * info.m_maxSlope) * info.m_maxSlope) * 4f) < ((vector11.y - vector7.y) * (vector11.y - vector7.y)))
+                if (VectorUtils.LengthSqrXZ(a2 - b2) * info.m_maxSlope * info.m_maxSlope * 4f < (a2.y - b2.y) * (a2.y - b2.y))
                 {
-                    collidingSegmentBuffer[segment >> 6] |= ((ulong) 1L) << segment;
-                    none |= ToolBase.ToolErrors.SlopeTooSteep;
+                    collidingSegmentBuffer[segment >> 6] |= 1uL << (int)segment;
+                    toolErrors |= ToolBase.ToolErrors.SlopeTooSteep;
                 }
             }
         }
-        return none;
+        return toolErrors;
     }
-
-    private static ToolBase.ToolErrors CanCreateSegment(NetInfo segmentInfo, ushort startNode, ushort startSegment, ushort endNode, ushort endSegment, ushort upgrading, Vector3 startPos, Vector3 endPos, Vector3 startDir, Vector3 endDir, ulong[] collidingSegmentBuffer)
-    {
-        bool flag;
-        bool flag2;
-        Vector3 vector;
-        Vector3 vector2;
-        Vector3 vector3;
-        Vector3 vector4;
-        Vector3 vector11;
-        Vector3 vector12;
-        Vector3 vector13;
-        Vector3 vector14;
-        ToolBase.ToolErrors none = ToolBase.ToolErrors.None;
-        NetManager instance = Singleton<NetManager>.instance;
-        if ((startSegment != 0) && (startNode == 0))
-        {
-            Vector3 vector5;
-            Vector3 vector6;
-            NetInfo info = instance.m_segments.m_buffer[startSegment].Info;
-            instance.m_segments.m_buffer[startSegment].GetClosestPositionAndDirection(startPos, out vector5, out vector6);
-            vector6 = VectorUtils.NormalizeXZ(vector6);
-            ushort index = instance.m_segments.m_buffer[startSegment].m_startNode;
-            ushort num2 = instance.m_segments.m_buffer[startSegment].m_endNode;
-            Vector3 position = instance.m_nodes.m_buffer[index].m_position;
-            Vector3 vector8 = instance.m_nodes.m_buffer[num2].m_position;
-            Vector3 startDirection = instance.m_segments.m_buffer[startSegment].m_startDirection;
-            Vector3 endDirection = instance.m_segments.m_buffer[startSegment].m_endDirection;
-            NetSegment.CalculateCorner(segmentInfo, startPos, endPos, startDir, endDir, info, position, -vector6, startDirection, info, vector8, vector6, endDirection, 0, 0, false, true, out vector, out vector2, out flag);
-            NetSegment.CalculateCorner(segmentInfo, startPos, endPos, startDir, endDir, info, position, -vector6, startDirection, info, vector8, vector6, endDirection, 0, 0, false, false, out vector3, out vector4, out flag);
-            none |= CanCreateSegment(startSegment, index, endNode, info, startPos, position, -vector6, startDirection, segmentInfo, endPos, startDir, endDir, collidingSegmentBuffer);
-            none |= CanCreateSegment(startSegment, num2, endNode, info, startPos, vector8, vector6, endDirection, segmentInfo, endPos, startDir, endDir, collidingSegmentBuffer);
-        }
-        else
-        {
-            NetSegment.CalculateCorner(segmentInfo, startPos, endPos, startDir, endDir, null, Vector3.zero, Vector3.zero, Vector3.zero, null, Vector3.zero, Vector3.zero, Vector3.zero, upgrading, startNode, false, true, out vector, out vector2, out flag);
-            NetSegment.CalculateCorner(segmentInfo, startPos, endPos, startDir, endDir, null, Vector3.zero, Vector3.zero, Vector3.zero, null, Vector3.zero, Vector3.zero, Vector3.zero, upgrading, startNode, false, false, out vector3, out vector4, out flag);
-            if (startNode != 0)
-            {
-                none |= CanCreateSegment(segmentInfo, startNode, upgrading, endPos, startDir, endDir, collidingSegmentBuffer);
-            }
-        }
-        if ((endSegment != 0) && (endNode == 0))
-        {
-            Vector3 vector15;
-            Vector3 vector16;
-            NetInfo info2 = instance.m_segments.m_buffer[endSegment].Info;
-            instance.m_segments.m_buffer[endSegment].GetClosestPositionAndDirection(startPos, out vector15, out vector16);
-            vector16 = VectorUtils.NormalizeXZ(vector16);
-            ushort num3 = instance.m_segments.m_buffer[endSegment].m_startNode;
-            ushort num4 = instance.m_segments.m_buffer[endSegment].m_endNode;
-            Vector3 vector17 = instance.m_nodes.m_buffer[num3].m_position;
-            Vector3 vector18 = instance.m_nodes.m_buffer[num4].m_position;
-            Vector3 vector19 = instance.m_segments.m_buffer[endSegment].m_startDirection;
-            Vector3 vector20 = instance.m_segments.m_buffer[endSegment].m_endDirection;
-            NetSegment.CalculateCorner(segmentInfo, endPos, startPos, endDir, startDir, info2, vector17, -vector16, vector19, info2, vector18, vector16, vector20, 0, 0, false, false, out vector11, out vector12, out flag2);
-            NetSegment.CalculateCorner(segmentInfo, endPos, startPos, endDir, startDir, info2, vector17, -vector16, vector19, info2, vector18, vector16, vector20, 0, 0, false, true, out vector13, out vector14, out flag2);
-            none |= CanCreateSegment(endSegment, num3, startNode, info2, endPos, vector17, -vector16, vector19, segmentInfo, startPos, endDir, startDir, collidingSegmentBuffer);
-            none |= CanCreateSegment(endSegment, num4, startNode, info2, endPos, vector18, vector16, vector20, segmentInfo, startPos, endDir, startDir, collidingSegmentBuffer);
-        }
-        else
-        {
-            NetSegment.CalculateCorner(segmentInfo, endPos, startPos, endDir, startDir, null, Vector3.zero, Vector3.zero, Vector3.zero, null, Vector3.zero, Vector3.zero, Vector3.zero, upgrading, endNode, false, false, out vector11, out vector12, out flag2);
-            NetSegment.CalculateCorner(segmentInfo, endPos, startPos, endDir, startDir, null, Vector3.zero, Vector3.zero, Vector3.zero, null, Vector3.zero, Vector3.zero, Vector3.zero, upgrading, endNode, false, true, out vector13, out vector14, out flag2);
-            if (endNode != 0)
-            {
-                none |= CanCreateSegment(segmentInfo, endNode, upgrading, startPos, endDir, startDir, collidingSegmentBuffer);
-            }
-        }
-        if ((((vector11.x - vector.x) * startDir.x) + ((vector11.z - vector.z) * startDir.z)) < 2f)
-        {
-            none |= ToolBase.ToolErrors.TooShort;
-        }
-        if ((((vector.x - vector11.x) * endDir.x) + ((vector.z - vector11.z) * endDir.z)) < 2f)
-        {
-            none |= ToolBase.ToolErrors.TooShort;
-        }
-        if ((((vector13.x - vector3.x) * startDir.x) + ((vector13.z - vector3.z) * startDir.z)) < 2f)
-        {
-            none |= ToolBase.ToolErrors.TooShort;
-        }
-        if ((((vector3.x - vector13.x) * endDir.x) + ((vector3.z - vector13.z) * endDir.z)) < 2f)
-        {
-            none |= ToolBase.ToolErrors.TooShort;
-        }
-        if ((((VectorUtils.LengthSqrXZ(vector11 - vector) * segmentInfo.m_maxSlope) * segmentInfo.m_maxSlope) * 4f) < ((vector11.y - vector.y) * (vector11.y - vector.y)))
-        {
-            none |= ToolBase.ToolErrors.SlopeTooSteep;
-        }
-        if ((((VectorUtils.LengthSqrXZ(vector13 - vector3) * segmentInfo.m_maxSlope) * segmentInfo.m_maxSlope) * 4f) < ((vector13.y - vector3.y) * (vector13.y - vector3.y)))
-        {
-            none |= ToolBase.ToolErrors.SlopeTooSteep;
-        }
-        return none;
-    }
-
+    //Unmodified
     private static ToolBase.ToolErrors CanCreateSegment(ushort segment, ushort endNode, ushort otherNode, NetInfo info1, Vector3 startPos, Vector3 endPos, Vector3 startDir, Vector3 endDir, NetInfo info2, Vector3 endPos2, Vector3 startDir2, Vector3 endDir2, ulong[] collidingSegmentBuffer)
     {
-        ToolBase.ToolErrors none = ToolBase.ToolErrors.None;
+        ToolBase.ToolErrors toolErrors = ToolBase.ToolErrors.None;
         NetManager instance = Singleton<NetManager>.instance;
         bool flag = true;
-        if ((instance.m_nodes.m_buffer[endNode].m_flags & (NetNode.Flags.Untouchable | NetNode.Flags.Moveable | NetNode.Flags.Middle)) == (NetNode.Flags.Moveable | NetNode.Flags.Middle))
+        if ((instance.m_nodes.m_buffer[(int)endNode].m_flags & (NetNode.Flags.Middle | NetNode.Flags.Moveable | NetNode.Flags.Untouchable)) == (NetNode.Flags.Middle | NetNode.Flags.Moveable))
         {
             for (int i = 0; i < 8; i++)
             {
-                ushort num2 = instance.m_nodes.m_buffer[endNode].GetSegment(i);
-                if ((num2 != 0) && (num2 != segment))
+                ushort segment2 = instance.m_nodes.m_buffer[(int)endNode].GetSegment(i);
+                if (segment2 != 0 && segment2 != segment)
                 {
-                    ushort startNode;
-                    segment = num2;
-                    info1 = instance.m_segments.m_buffer[segment].Info;
-                    if (instance.m_segments.m_buffer[segment].m_startNode == endNode)
+                    segment = segment2;
+                    info1 = instance.m_segments.m_buffer[(int)segment].Info;
+                    ushort num;
+                    if (instance.m_segments.m_buffer[(int)segment].m_startNode == endNode)
                     {
-                        startNode = instance.m_segments.m_buffer[segment].m_endNode;
-                        endDir = instance.m_segments.m_buffer[segment].m_endDirection;
+                        num = instance.m_segments.m_buffer[(int)segment].m_endNode;
+                        endDir = instance.m_segments.m_buffer[(int)segment].m_endDirection;
                     }
                     else
                     {
-                        startNode = instance.m_segments.m_buffer[segment].m_startNode;
-                        endDir = instance.m_segments.m_buffer[segment].m_startDirection;
+                        num = instance.m_segments.m_buffer[(int)segment].m_startNode;
+                        endDir = instance.m_segments.m_buffer[(int)segment].m_startDirection;
                     }
-                    if (startNode == otherNode)
+                    if (num == otherNode)
                     {
                         flag = false;
                     }
                     else
                     {
-                        endNode = startNode;
-                        endPos = instance.m_nodes.m_buffer[endNode].m_position;
+                        endNode = num;
+                        endPos = instance.m_nodes.m_buffer[(int)endNode].m_position;
                     }
                     break;
                 }
             }
         }
-        if (!flag || ((instance.m_nodes.m_buffer[endNode].m_flags & (NetNode.Flags.Untouchable | NetNode.Flags.Moveable | NetNode.Flags.Middle)) != (NetNode.Flags.Moveable | NetNode.Flags.Middle)))
+        if (flag && (instance.m_nodes.m_buffer[(int)endNode].m_flags & (NetNode.Flags.Middle | NetNode.Flags.Moveable | NetNode.Flags.Untouchable)) == (NetNode.Flags.Middle | NetNode.Flags.Moveable))
         {
-            bool flag2;
-            bool flag3;
+            return toolErrors;
+        }
+        Vector3 b;
+        Vector3 vector;
+        bool flag2;
+        NetSegment.CalculateCorner(info1, startPos, endPos, startDir, endDir, info2, endPos2, startDir2, endDir2, null, Vector3.zero, Vector3.zero, Vector3.zero, 0, 0, false, true, out b, out vector, out flag2);
+        Vector3 b2;
+        Vector3 vector2;
+        NetSegment.CalculateCorner(info1, startPos, endPos, startDir, endDir, info2, endPos2, startDir2, endDir2, null, Vector3.zero, Vector3.zero, Vector3.zero, 0, 0, false, false, out b2, out vector2, out flag2);
+        Vector3 a;
+        Vector3 vector3;
+        bool flag3;
+        NetSegment.CalculateCorner(info1, endPos, startPos, endDir, startDir, null, Vector3.zero, Vector3.zero, Vector3.zero, null, Vector3.zero, Vector3.zero, Vector3.zero, segment, endNode, false, false, out a, out vector3, out flag3);
+        Vector3 a2;
+        Vector3 vector4;
+        NetSegment.CalculateCorner(info1, endPos, startPos, endDir, startDir, null, Vector3.zero, Vector3.zero, Vector3.zero, null, Vector3.zero, Vector3.zero, Vector3.zero, segment, endNode, false, true, out a2, out vector4, out flag3);
+        if ((a.x - b.x) * startDir.x + (a.z - b.z) * startDir.z < 2f)
+        {
+            collidingSegmentBuffer[segment >> 6] |= 1uL << (int)segment;
+            toolErrors |= ToolBase.ToolErrors.ObjectCollision;
+        }
+        if ((b.x - a.x) * endDir.x + (b.z - a.z) * endDir.z < 2f)
+        {
+            collidingSegmentBuffer[segment >> 6] |= 1uL << (int)segment;
+            toolErrors |= ToolBase.ToolErrors.ObjectCollision;
+        }
+        if ((a2.x - b2.x) * startDir.x + (a2.z - b2.z) * startDir.z < 2f)
+        {
+            collidingSegmentBuffer[segment >> 6] |= 1uL << (int)segment;
+            toolErrors |= ToolBase.ToolErrors.ObjectCollision;
+        }
+        if ((b2.x - a2.x) * endDir.x + (b2.z - a2.z) * endDir.z < 2f)
+        {
+            collidingSegmentBuffer[segment >> 6] |= 1uL << (int)segment;
+            toolErrors |= ToolBase.ToolErrors.ObjectCollision;
+        }
+        if (VectorUtils.LengthSqrXZ(a - b) * info1.m_maxSlope * info1.m_maxSlope * 4f < (a.y - b.y) * (a.y - b.y))
+        {
+            collidingSegmentBuffer[segment >> 6] |= 1uL << (int)segment;
+            toolErrors |= ToolBase.ToolErrors.SlopeTooSteep;
+        }
+        if (VectorUtils.LengthSqrXZ(a2 - b2) * info1.m_maxSlope * info1.m_maxSlope * 4f < (a2.y - b2.y) * (a2.y - b2.y))
+        {
+            collidingSegmentBuffer[segment >> 6] |= 1uL << (int)segment;
+            toolErrors |= ToolBase.ToolErrors.SlopeTooSteep;
+        }
+        return toolErrors;
+    }
+    //Unmodified
+    private static ToolBase.ToolErrors CanCreateSegment(NetInfo segmentInfo, ushort startNode, ushort startSegment, ushort endNode, ushort endSegment, ushort upgrading, Vector3 startPos, Vector3 endPos, Vector3 startDir, Vector3 endDir, ulong[] collidingSegmentBuffer)
+    {
+        ToolBase.ToolErrors toolErrors = ToolBase.ToolErrors.None;
+        NetManager instance = Singleton<NetManager>.instance;
+        Vector3 b;
+        Vector3 b2;
+        if (startSegment != 0 && startNode == 0)
+        {
+            NetInfo info = instance.m_segments.m_buffer[(int)startSegment].Info;
             Vector3 vector;
             Vector3 vector2;
+            instance.m_segments.m_buffer[(int)startSegment].GetClosestPositionAndDirection(startPos, out vector, out vector2);
+            vector2 = VectorUtils.NormalizeXZ(vector2);
+            ushort startNode2 = instance.m_segments.m_buffer[(int)startSegment].m_startNode;
+            ushort endNode2 = instance.m_segments.m_buffer[(int)startSegment].m_endNode;
+            Vector3 position = instance.m_nodes.m_buffer[(int)startNode2].m_position;
+            Vector3 position2 = instance.m_nodes.m_buffer[(int)endNode2].m_position;
+            Vector3 startDirection = instance.m_segments.m_buffer[(int)startSegment].m_startDirection;
+            Vector3 endDirection = instance.m_segments.m_buffer[(int)startSegment].m_endDirection;
             Vector3 vector3;
+            bool flag;
+            NetSegment.CalculateCorner(segmentInfo, startPos, endPos, startDir, endDir, info, position, -vector2, startDirection, info, position2, vector2, endDirection, 0, 0, false, true, out b, out vector3, out flag);
             Vector3 vector4;
-            Vector3 vector5;
-            Vector3 vector6;
-            Vector3 vector7;
-            Vector3 vector8;
-            NetSegment.CalculateCorner(info1, startPos, endPos, startDir, endDir, info2, endPos2, startDir2, endDir2, null, Vector3.zero, Vector3.zero, Vector3.zero, 0, 0, false, true, out vector, out vector2, out flag2);
-            NetSegment.CalculateCorner(info1, startPos, endPos, startDir, endDir, info2, endPos2, startDir2, endDir2, null, Vector3.zero, Vector3.zero, Vector3.zero, 0, 0, false, false, out vector3, out vector4, out flag2);
-            NetSegment.CalculateCorner(info1, endPos, startPos, endDir, startDir, null, Vector3.zero, Vector3.zero, Vector3.zero, null, Vector3.zero, Vector3.zero, Vector3.zero, segment, endNode, false, false, out vector5, out vector6, out flag3);
-            NetSegment.CalculateCorner(info1, endPos, startPos, endDir, startDir, null, Vector3.zero, Vector3.zero, Vector3.zero, null, Vector3.zero, Vector3.zero, Vector3.zero, segment, endNode, false, true, out vector7, out vector8, out flag3);
-            if ((((vector5.x - vector.x) * startDir.x) + ((vector5.z - vector.z) * startDir.z)) < 2f)
+            NetSegment.CalculateCorner(segmentInfo, startPos, endPos, startDir, endDir, info, position, -vector2, startDirection, info, position2, vector2, endDirection, 0, 0, false, false, out b2, out vector4, out flag);
+            toolErrors |= CanCreateSegment(startSegment, startNode2, endNode, info, startPos, position, -vector2, startDirection, segmentInfo, endPos, startDir, endDir, collidingSegmentBuffer);
+            toolErrors |= CanCreateSegment(startSegment, endNode2, endNode, info, startPos, position2, vector2, endDirection, segmentInfo, endPos, startDir, endDir, collidingSegmentBuffer);
+        }
+        else
+        {
+            Vector3 vector3;
+            bool flag;
+            NetSegment.CalculateCorner(segmentInfo, startPos, endPos, startDir, endDir, null, Vector3.zero, Vector3.zero, Vector3.zero, null, Vector3.zero, Vector3.zero, Vector3.zero, upgrading, startNode, false, true, out b, out vector3, out flag);
+            Vector3 vector4;
+            NetSegment.CalculateCorner(segmentInfo, startPos, endPos, startDir, endDir, null, Vector3.zero, Vector3.zero, Vector3.zero, null, Vector3.zero, Vector3.zero, Vector3.zero, upgrading, startNode, false, false, out b2, out vector4, out flag);
+            if (startNode != 0)
             {
-                collidingSegmentBuffer[segment >> 6] |= ((ulong) 1L) << segment;
-                none |= ToolBase.ToolErrors.FirstVisibleError;
-            }
-            if ((((vector.x - vector5.x) * endDir.x) + ((vector.z - vector5.z) * endDir.z)) < 2f)
-            {
-                collidingSegmentBuffer[segment >> 6] |= ((ulong) 1L) << segment;
-                none |= ToolBase.ToolErrors.FirstVisibleError;
-            }
-            if ((((vector7.x - vector3.x) * startDir.x) + ((vector7.z - vector3.z) * startDir.z)) < 2f)
-            {
-                collidingSegmentBuffer[segment >> 6] |= ((ulong) 1L) << segment;
-                none |= ToolBase.ToolErrors.FirstVisibleError;
-            }
-            if ((((vector3.x - vector7.x) * endDir.x) + ((vector3.z - vector7.z) * endDir.z)) < 2f)
-            {
-                collidingSegmentBuffer[segment >> 6] |= ((ulong) 1L) << segment;
-                none |= ToolBase.ToolErrors.FirstVisibleError;
-            }
-            if ((((VectorUtils.LengthSqrXZ(vector5 - vector) * info1.m_maxSlope) * info1.m_maxSlope) * 4f) < ((vector5.y - vector.y) * (vector5.y - vector.y)))
-            {
-                collidingSegmentBuffer[segment >> 6] |= ((ulong) 1L) << segment;
-                none |= ToolBase.ToolErrors.SlopeTooSteep;
-            }
-            if ((((VectorUtils.LengthSqrXZ(vector7 - vector3) * info1.m_maxSlope) * info1.m_maxSlope) * 4f) < ((vector7.y - vector3.y) * (vector7.y - vector3.y)))
-            {
-                collidingSegmentBuffer[segment >> 6] |= ((ulong) 1L) << segment;
-                none |= ToolBase.ToolErrors.SlopeTooSteep;
+                toolErrors |= CanCreateSegment(segmentInfo, startNode, upgrading, endPos, startDir, endDir, collidingSegmentBuffer);
             }
         }
-        return none;
+        Vector3 a;
+        Vector3 a2;
+        if (endSegment != 0 && endNode == 0)
+        {
+            NetInfo info2 = instance.m_segments.m_buffer[(int)endSegment].Info;
+            Vector3 vector5;
+            Vector3 vector6;
+            instance.m_segments.m_buffer[(int)endSegment].GetClosestPositionAndDirection(startPos, out vector5, out vector6);
+            vector6 = VectorUtils.NormalizeXZ(vector6);
+            ushort startNode3 = instance.m_segments.m_buffer[(int)endSegment].m_startNode;
+            ushort endNode3 = instance.m_segments.m_buffer[(int)endSegment].m_endNode;
+            Vector3 position3 = instance.m_nodes.m_buffer[(int)startNode3].m_position;
+            Vector3 position4 = instance.m_nodes.m_buffer[(int)endNode3].m_position;
+            Vector3 startDirection2 = instance.m_segments.m_buffer[(int)endSegment].m_startDirection;
+            Vector3 endDirection2 = instance.m_segments.m_buffer[(int)endSegment].m_endDirection;
+            Vector3 vector7;
+            bool flag2;
+            NetSegment.CalculateCorner(segmentInfo, endPos, startPos, endDir, startDir, info2, position3, -vector6, startDirection2, info2, position4, vector6, endDirection2, 0, 0, false, false, out a, out vector7, out flag2);
+            Vector3 vector8;
+            NetSegment.CalculateCorner(segmentInfo, endPos, startPos, endDir, startDir, info2, position3, -vector6, startDirection2, info2, position4, vector6, endDirection2, 0, 0, false, true, out a2, out vector8, out flag2);
+            toolErrors |= CanCreateSegment(endSegment, startNode3, startNode, info2, endPos, position3, -vector6, startDirection2, segmentInfo, startPos, endDir, startDir, collidingSegmentBuffer);
+            toolErrors |= CanCreateSegment(endSegment, endNode3, startNode, info2, endPos, position4, vector6, endDirection2, segmentInfo, startPos, endDir, startDir, collidingSegmentBuffer);
+        }
+        else
+        {
+            Vector3 vector7;
+            bool flag2;
+            NetSegment.CalculateCorner(segmentInfo, endPos, startPos, endDir, startDir, null, Vector3.zero, Vector3.zero, Vector3.zero, null, Vector3.zero, Vector3.zero, Vector3.zero, upgrading, endNode, false, false, out a, out vector7, out flag2);
+            Vector3 vector8;
+            NetSegment.CalculateCorner(segmentInfo, endPos, startPos, endDir, startDir, null, Vector3.zero, Vector3.zero, Vector3.zero, null, Vector3.zero, Vector3.zero, Vector3.zero, upgrading, endNode, false, true, out a2, out vector8, out flag2);
+            if (endNode != 0)
+            {
+                toolErrors |= CanCreateSegment(segmentInfo, endNode, upgrading, startPos, endDir, startDir, collidingSegmentBuffer);
+            }
+        }
+        if ((a.x - b.x) * startDir.x + (a.z - b.z) * startDir.z < 2f)
+        {
+            toolErrors |= ToolBase.ToolErrors.TooShort;
+        }
+        if ((b.x - a.x) * endDir.x + (b.z - a.z) * endDir.z < 2f)
+        {
+            toolErrors |= ToolBase.ToolErrors.TooShort;
+        }
+        if ((a2.x - b2.x) * startDir.x + (a2.z - b2.z) * startDir.z < 2f)
+        {
+            toolErrors |= ToolBase.ToolErrors.TooShort;
+        }
+        if ((b2.x - a2.x) * endDir.x + (b2.z - a2.z) * endDir.z < 2f)
+        {
+            toolErrors |= ToolBase.ToolErrors.TooShort;
+        }
+        if (VectorUtils.LengthSqrXZ(a - b) * segmentInfo.m_maxSlope * segmentInfo.m_maxSlope * 4f < (a.y - b.y) * (a.y - b.y))
+        {
+            toolErrors |= ToolBase.ToolErrors.SlopeTooSteep;
+        }
+        if (VectorUtils.LengthSqrXZ(a2 - b2) * segmentInfo.m_maxSlope * segmentInfo.m_maxSlope * 4f < (a2.y - b2.y) * (a2.y - b2.y))
+        {
+            toolErrors |= ToolBase.ToolErrors.SlopeTooSteep;
+        }
+        return toolErrors;
     }
 
     [DebuggerHidden]
@@ -734,732 +755,833 @@ public class NetToolFine : ToolBase
         return new TCreateNodeTc__Iterator5F { switchDirection = switchDirection, TSTswitchDirection = switchDirection, TTf__this = this };
     }
 
+    //Unmodified
     public static ToolBase.ToolErrors CreateNode(NetInfo info, NetTool.ControlPoint startPoint, NetTool.ControlPoint middlePoint, NetTool.ControlPoint endPoint, FastList<NetTool.NodePosition> nodeBuffer, int maxSegments, bool test, bool visualize, bool autoFix, bool needMoney, bool invert, bool switchDir, ushort relocateBuildingID, out ushort node, out ushort segment, out int cost, out int productionRate)
     {
         ushort num;
         ushort num2;
-        ToolBase.ToolErrors errors = CreateNode(info, startPoint, middlePoint, endPoint, nodeBuffer, maxSegments, test, visualize, autoFix, needMoney, invert, switchDir, relocateBuildingID, out num, out num2, out segment, out cost, out productionRate);
-        if (errors == ToolBase.ToolErrors.None)
+        ToolBase.ToolErrors toolErrors = CreateNode(info, startPoint, middlePoint, endPoint, nodeBuffer, maxSegments, test, visualize, autoFix, needMoney, invert, switchDir, relocateBuildingID, out num, out num2, out segment, out cost, out productionRate);
+        if (toolErrors == ToolBase.ToolErrors.None)
         {
             if (num2 != 0)
             {
                 node = num2;
-                return errors;
             }
-            node = num;
-            return errors;
+            else
+            {
+                node = num;
+            }
         }
-        node = 0;
-        return errors;
+        else
+        {
+            node = 0;
+        }
+        return toolErrors;
     }
 
     public static ToolBase.ToolErrors CreateNode(NetInfo info, NetTool.ControlPoint startPoint, NetTool.ControlPoint middlePoint, NetTool.ControlPoint endPoint, FastList<NetTool.NodePosition> nodeBuffer, int maxSegments, bool test, bool visualize, bool autoFix, bool needMoney, bool invert, bool switchDir, ushort relocateBuildingID, out ushort firstNode, out ushort lastNode, out ushort segment, out int cost, out int productionRate)
     {
-        ToolBase.ToolErrors errors3;
-        ushort index = middlePoint.m_segment;
+        ushort midleSegment = middlePoint.m_segment;
         NetInfo oldInfo = null;
-        if ((startPoint.m_segment == index) || (endPoint.m_segment == index))
+        if (startPoint.m_segment == midleSegment || endPoint.m_segment == midleSegment)
         {
-            index = 0;
+            midleSegment = 0;
         }
         uint currentBuildIndex = Singleton<SimulationManager>.instance.m_currentBuildIndex;
         bool flag = invert;
         bool smoothStart = true;
         bool smoothEnd = true;
-        if (index != 0)
+        bool enableDouble = false;
+        if (midleSegment != 0)
         {
+            enableDouble = (DefaultTool.FindSecondarySegment(midleSegment) != 0);
             maxSegments = Mathf.Min(1, maxSegments);
-            cost = -Singleton<NetManager>.instance.m_segments.m_buffer[index].Info.m_netAI.GetConstructionCost(startPoint.m_position, endPoint.m_position, startPoint.m_elevation, endPoint.m_elevation);
-            currentBuildIndex = Singleton<NetManager>.instance.m_segments.m_buffer[index].m_buildIndex;
-            smoothStart = (Singleton<NetManager>.instance.m_nodes.m_buffer[startPoint.m_node].m_flags & NetNode.Flags.Middle) != NetNode.Flags.None;
-            smoothEnd = (Singleton<NetManager>.instance.m_nodes.m_buffer[endPoint.m_node].m_flags & NetNode.Flags.Middle) != NetNode.Flags.None;
+            cost = -Singleton<NetManager>.instance.m_segments.m_buffer[(int)midleSegment].Info.m_netAI.GetConstructionCost(startPoint.m_position, endPoint.m_position, startPoint.m_elevation, endPoint.m_elevation);
+            currentBuildIndex = Singleton<NetManager>.instance.m_segments.m_buffer[(int)midleSegment].m_buildIndex;
+            smoothStart = ((Singleton<NetManager>.instance.m_nodes.m_buffer[(int)startPoint.m_node].m_flags & NetNode.Flags.Middle) != NetNode.Flags.None);
+            smoothEnd = ((Singleton<NetManager>.instance.m_nodes.m_buffer[(int)endPoint.m_node].m_flags & NetNode.Flags.Middle) != NetNode.Flags.None);
             autoFix = false;
             if (switchDir)
             {
                 flag = !flag;
-                info = Singleton<NetManager>.instance.m_segments.m_buffer[index].Info;
+                info = Singleton<NetManager>.instance.m_segments.m_buffer[(int)midleSegment].Info;
             }
             if (!test && !visualize)
             {
-                if ((Singleton<NetManager>.instance.m_segments.m_buffer[index].m_flags & NetSegment.Flags.Invert) != NetSegment.Flags.None)
+                if ((Singleton<NetManager>.instance.m_segments.m_buffer[(int)midleSegment].m_flags & NetSegment.Flags.Invert) != NetSegment.Flags.None)
                 {
                     flag = !flag;
                 }
-                oldInfo = Singleton<NetManager>.instance.m_segments.m_buffer[index].Info;
-                Singleton<NetManager>.instance.ReleaseSegment(index, true);
-                index = 0;
+                oldInfo = Singleton<NetManager>.instance.m_segments.m_buffer[(int)midleSegment].Info;
+                Singleton<NetManager>.instance.ReleaseSegment(midleSegment, true);
+                midleSegment = 0;
             }
         }
         else
         {
-            if (autoFix && (Singleton<SimulationManager>.instance.m_metaData.m_invertTraffic == SimulationMetaData.MetaBool.True))
+            if (autoFix && Singleton<SimulationManager>.instance.m_metaData.m_invertTraffic == SimulationMetaData.MetaBool.True)
             {
                 flag = !flag;
             }
             cost = 0;
         }
         ToolController properties = Singleton<ToolManager>.instance.m_properties;
-        ulong[] collidingSegments = null;
-        ulong[] collidingBuildings = null;
-        ToolBase.ToolErrors none = ToolBase.ToolErrors.None;
+        ulong[] numArray = null;
+        ulong[] numArray2 = null;
+        ToolBase.ToolErrors toolErrors = ToolBase.ToolErrors.None;
         if (test || !visualize)
         {
-            properties.BeginColliding(out collidingSegments, out collidingBuildings);
+            properties.BeginColliding(out numArray, out numArray2);
         }
+        ToolBase.ToolErrors result;
         try
         {
-            BuildingInfo info3;
+            ushort num2 = 0;
+            BuildingInfo buildingInfo;
             Vector3 zero;
             Vector3 forward;
-            Vector3 vector7;
-            Vector3 vector8;
-            NetTool.NodePosition position;
-            NetInfo info5;
-            BuildingInfo info7;
-            float num21;
-            ushort building = 0;
-            if ((index != 0) && switchDir)
+            if (midleSegment != 0 && switchDir)
             {
-                info3 = null;
+                buildingInfo = null;
                 zero = Vector3.zero;
                 forward = Vector3.forward;
                 productionRate = 0;
                 if (info.m_hasForwardVehicleLanes == info.m_hasBackwardVehicleLanes)
                 {
-                    none |= ToolBase.ToolErrors.CannotUpgrade;
+                    toolErrors |= ToolBase.ToolErrors.CannotUpgrade;
                 }
             }
             else
             {
-                none |= info.m_netAI.CheckBuildPosition(test, visualize, false, autoFix, ref startPoint, ref middlePoint, ref endPoint, out info3, out zero, out forward, out productionRate);
+                toolErrors |= info.m_netAI.CheckBuildPosition(test, visualize, false, autoFix, ref startPoint, ref middlePoint, ref endPoint, out buildingInfo, out zero, out forward, out productionRate);
             }
             if (test)
             {
-                Vector3 vector3 = middlePoint.m_direction;
-                Vector3 vector4 = -endPoint.m_direction;
-                if (((maxSegments != 0) && (index == 0)) && (((vector3.x * vector4.x) + (vector3.z * vector4.z)) >= 0.8f))
+                Vector3 direction = middlePoint.m_direction;
+                Vector3 direction2 = -endPoint.m_direction;
+                if (maxSegments != 0 && midleSegment == 0 && direction.x * direction2.x + direction.z * direction2.z >= 0.8f)
                 {
-                    none |= ToolBase.ToolErrors.InvalidShape;
+                    toolErrors |= ToolBase.ToolErrors.InvalidShape;
                 }
-                if ((maxSegments != 0) && !CheckStartAndEnd(index, startPoint.m_segment, startPoint.m_node, endPoint.m_segment, endPoint.m_node, collidingSegments))
+                if (maxSegments != 0 && !CheckStartAndEnd(midleSegment, startPoint.m_segment, startPoint.m_node, endPoint.m_segment, endPoint.m_node, numArray))
                 {
-                    none |= ToolBase.ToolErrors.FirstVisibleError;
+                    toolErrors |= ToolBase.ToolErrors.ObjectCollision;
                 }
                 if (startPoint.m_node != 0)
                 {
-                    if ((maxSegments != 0) && !CanAddSegment(startPoint.m_node, vector3, collidingSegments, index))
+                    if (maxSegments != 0 && !CanAddSegment(startPoint.m_node, direction, numArray, midleSegment))
                     {
-                        none |= ToolBase.ToolErrors.FirstVisibleError;
+                        toolErrors |= ToolBase.ToolErrors.ObjectCollision;
                     }
                 }
-                else if ((startPoint.m_segment != 0) && !CanAddNode(startPoint.m_segment, startPoint.m_position, vector3, maxSegments != 0, collidingSegments))
+                else if (startPoint.m_segment != 0 && !CanAddNode(startPoint.m_segment, startPoint.m_position, direction, maxSegments != 0, numArray))
                 {
-                    none |= ToolBase.ToolErrors.FirstVisibleError;
+                    toolErrors |= ToolBase.ToolErrors.ObjectCollision;
                 }
                 if (endPoint.m_node != 0)
                 {
-                    if ((maxSegments != 0) && !CanAddSegment(endPoint.m_node, vector4, collidingSegments, index))
+                    if (maxSegments != 0 && !CanAddSegment(endPoint.m_node, direction2, numArray, midleSegment))
                     {
-                        none |= ToolBase.ToolErrors.FirstVisibleError;
+                        toolErrors |= ToolBase.ToolErrors.ObjectCollision;
                     }
                 }
-                else if ((endPoint.m_segment != 0) && !CanAddNode(endPoint.m_segment, endPoint.m_position, vector4, maxSegments != 0, collidingSegments))
+                else if (endPoint.m_segment != 0 && !CanAddNode(endPoint.m_segment, endPoint.m_position, direction2, maxSegments != 0, numArray))
                 {
-                    none |= ToolBase.ToolErrors.FirstVisibleError;
+                    toolErrors |= ToolBase.ToolErrors.ObjectCollision;
                 }
                 if (!Singleton<NetManager>.instance.CheckLimits())
                 {
-                    none |= ToolBase.ToolErrors.LastVisibleError;
+                    toolErrors |= ToolBase.ToolErrors.TooManyObjects;
                 }
             }
-            if (info3 != null)
+            if (buildingInfo != null)
             {
                 if (visualize)
                 {
-                    RenderNodeBuilding(info3, zero, forward);
+                    RenderNodeBuilding(buildingInfo, zero, forward);
                 }
                 else if (test)
                 {
-                    none |= TestNodeBuilding(info3, zero, forward, 0, 0, 0, test, collidingSegments, collidingBuildings);
+                    toolErrors |= TestNodeBuilding(buildingInfo, zero, forward, 0, 0, 0, test, numArray, numArray2);
                 }
                 else
                 {
                     float angle = Mathf.Atan2(-forward.x, forward.z);
-                    if (Singleton<BuildingManager>.instance.CreateBuilding(out building, ref Singleton<SimulationManager>.instance.m_randomizer, info3, zero, angle, 0, Singleton<SimulationManager>.instance.m_currentBuildIndex))
+                    if (Singleton<BuildingManager>.instance.CreateBuilding(out num2, ref Singleton<SimulationManager>.instance.m_randomizer, buildingInfo, zero, angle, 0, Singleton<SimulationManager>.instance.m_currentBuildIndex))
                     {
-                        Singleton<BuildingManager>.instance.m_buildings.m_buffer[building].m_flags |= Building.Flags.FixedHeight;
-                        SimulationManager instance = Singleton<SimulationManager>.instance;
-                        instance.m_currentBuildIndex++;
+                        Building[] expr_47C_cp_0 = Singleton<BuildingManager>.instance.m_buildings.m_buffer;
+                        ushort expr_47C_cp_1 = num2;
+                        expr_47C_cp_0[(int)expr_47C_cp_1].m_flags = (expr_47C_cp_0[(int)expr_47C_cp_1].m_flags | Building.Flags.FixedHeight);
+                        Singleton<SimulationManager>.instance.m_currentBuildIndex += 1u;
                     }
                 }
             }
-            bool curved = ((middlePoint.m_direction.x * endPoint.m_direction.x) + (middlePoint.m_direction.z * endPoint.m_direction.z)) <= 0.999f;
-            Vector2 vector21 = new Vector2(startPoint.m_position.x - middlePoint.m_position.x, startPoint.m_position.z - middlePoint.m_position.z);
-            float magnitude = vector21.magnitude;
-            Vector2 vector22 = new Vector2(middlePoint.m_position.x - endPoint.m_position.x, middlePoint.m_position.z - endPoint.m_position.z);
-            float num6 = vector22.magnitude;
-            float length = magnitude + num6;
-            if (test && (maxSegments != 0))
+            bool isCurved = middlePoint.m_direction.x * endPoint.m_direction.x + middlePoint.m_direction.z * endPoint.m_direction.z <= 0.999f;
+            Vector2 vector = new Vector2(startPoint.m_position.x - middlePoint.m_position.x, startPoint.m_position.z - middlePoint.m_position.z);
+            float magnitude = vector.magnitude;
+            Vector2 vector2 = new Vector2(middlePoint.m_position.x - endPoint.m_position.x, middlePoint.m_position.z - endPoint.m_position.z);
+            float magnitude2 = vector2.magnitude;
+            float length = magnitude + magnitude2;
+            if (test && maxSegments != 0)
             {
-                float num8 = 7f;
-                if (curved && (index == 0))
+                float num4 = 7f;
+                if (isCurved && midleSegment == 0)
                 {
-                    if (magnitude < num8)
+                    if (magnitude < num4)
                     {
-                        none |= ToolBase.ToolErrors.TooShort;
+                        toolErrors |= ToolBase.ToolErrors.TooShort;
                     }
-                    if (num6 < num8)
+                    if (magnitude2 < num4)
                     {
-                        none |= ToolBase.ToolErrors.TooShort;
+                        toolErrors |= ToolBase.ToolErrors.TooShort;
                     }
                 }
-                else if (length < num8)
+                else if (length < num4)
                 {
-                    none |= ToolBase.ToolErrors.TooShort;
+                    toolErrors |= ToolBase.ToolErrors.TooShort;
                 }
             }
             segment = 0;
-            int num9 = Mathf.Min(maxSegments, Mathf.FloorToInt(length / 100f) + 1);
-            ushort num10 = startPoint.m_node;
-            Vector3 vector5 = startPoint.m_position;
-            Vector3 direction = middlePoint.m_direction;
-            NetSegment.CalculateMiddlePoints(startPoint.m_position, middlePoint.m_direction, endPoint.m_position, -endPoint.m_direction, smoothStart, smoothEnd, out vector7, out vector8);
-            nodeBuffer.Clear();
-            position.m_position = vector5;
-            position.m_direction = direction;
-            position.m_minY = vector5.y;
-            position.m_maxY = vector5.y;
-            position.m_terrainHeight = Singleton<TerrainManager>.instance.SampleRawHeightSmooth(position.m_position);
-            position.m_elevation = startPoint.m_elevation;
-            if (position.m_elevation < (terrainStep-1))
+            int nodesNeeded = Mathf.Min(maxSegments, Mathf.FloorToInt(length / 100f) + 1);
+            if (nodesNeeded >= 2)
             {
-                position.m_elevation = 0f;
+                enableDouble = true;
             }
-            position.m_nodeInfo = info.m_netAI.GetInfo(position.m_position.y - position.m_terrainHeight, length, startPoint.m_outside, false, curved, num9 >= 2, ref none);
-            position.m_double = false;
-            nodeBuffer.Add(position);
-            for (int i = 1; i <= num9; i++)
+            ushort startNodeIndex = startPoint.m_node;
+            Vector3 startPosition = startPoint.m_position;
+            Vector3 middleDirection = middlePoint.m_direction;
+            Vector3 middlePosition1;
+            Vector3 middlePosition2;
+            NetSegment.CalculateMiddlePoints(startPoint.m_position, middlePoint.m_direction, endPoint.m_position, -endPoint.m_direction, smoothStart, smoothEnd, out middlePosition1, out middlePosition2);
+            nodeBuffer.Clear();
+            NetTool.NodePosition item;
+            item.m_position = startPosition;
+            item.m_direction = middleDirection;
+            item.m_minY = startPosition.y;
+            item.m_maxY = startPosition.y;
+            item.m_terrainHeight = Singleton<TerrainManager>.instance.SampleRawHeightSmooth(item.m_position);
+            item.m_elevation = startPoint.m_elevation;
+            if (Mathf.Abs(item.m_elevation) < terrainStep - 1)
             {
-                position.m_elevation = Mathf.Lerp(startPoint.m_elevation, endPoint.m_elevation, ((float) i) / ((float) num9));
-                if (position.m_elevation < (terrainStep - 1))
+                item.m_elevation = 0f;
+            }
+            item.m_double = false;
+            if (startPoint.m_node != 0)
+            {
+                item.m_double = ((Singleton<NetManager>.instance.m_nodes.m_buffer[(int)startPoint.m_node].m_flags & NetNode.Flags.Double) != NetNode.Flags.None);
+            }
+            else if (info.m_netAI.RequireDoubleSegments() && maxSegments <= 1)
+            {
+                item.m_double = true;
+            }
+            item.m_nodeInfo = null;
+            nodeBuffer.Add(item);
+            for (int i = 1; i <= nodesNeeded; i++)
+            {
+                item.m_elevation = Mathf.Lerp(startPoint.m_elevation, endPoint.m_elevation, (float)i / (float)nodesNeeded);
+                if (Mathf.Abs(item.m_elevation) < terrainStep - 1)
                 {
-                    position.m_elevation = 0f;
+                    item.m_elevation = 0f;
                 }
-                if (i == num9)
+                item.m_double = false;
+                if (i == nodesNeeded)
                 {
-                    position.m_position = endPoint.m_position;
-                    position.m_direction = endPoint.m_direction;
-                    position.m_minY = endPoint.m_position.y;
-                    position.m_maxY = endPoint.m_position.y;
-                    position.m_terrainHeight = Singleton<TerrainManager>.instance.SampleRawHeightSmooth(position.m_position);
+                    item.m_position = endPoint.m_position;
+                    item.m_direction = endPoint.m_direction;
+                    item.m_minY = endPoint.m_position.y;
+                    item.m_maxY = endPoint.m_position.y;
+                    item.m_terrainHeight = Singleton<TerrainManager>.instance.SampleRawHeightSmooth(item.m_position);
+                    if (endPoint.m_node != 0)
+                    {
+                        item.m_double = ((Singleton<NetManager>.instance.m_nodes.m_buffer[(int)endPoint.m_node].m_flags & NetNode.Flags.Double) != NetNode.Flags.None);
+                    }
                 }
-                else if (curved)
+                else if (isCurved)
                 {
-                    position.m_position = Bezier3.Position(startPoint.m_position, vector7, vector8, endPoint.m_position, ((float) i) / ((float) num9));
-                    position.m_direction = Bezier3.Tangent(startPoint.m_position, vector7, vector8, endPoint.m_position, ((float) i) / ((float) num9));
-                    float introduced106 = NetSegment.SampleTerrainHeight(info, position.m_position, visualize);
-                    position.m_position.y = introduced106 + position.m_elevation;
-                    position.m_direction = VectorUtils.NormalizeXZ(position.m_direction);
-                    position.m_minY = 0f;
-                    position.m_maxY = 1280f;
-                    position.m_terrainHeight = Singleton<TerrainManager>.instance.SampleRawHeightSmooth(position.m_position);
+                    item.m_position = Bezier3.Position(startPoint.m_position, middlePosition1, middlePosition2, endPoint.m_position, (float)i / (float)nodesNeeded);
+                    item.m_direction = Bezier3.Tangent(startPoint.m_position, middlePosition1, middlePosition2, endPoint.m_position, (float)i / (float)nodesNeeded);
+                    item.m_position.y = NetSegment.SampleTerrainHeight(info, item.m_position, visualize, item.m_elevation);
+                    item.m_direction = VectorUtils.NormalizeXZ(item.m_direction);
+                    item.m_minY = 0f;
+                    item.m_maxY = 1280f;
+                    item.m_terrainHeight = Singleton<TerrainManager>.instance.SampleRawHeightSmooth(item.m_position);
                 }
                 else
                 {
                     float lengthSnap = info.m_netAI.GetLengthSnap();
-                    position.m_position = LerpPosition(startPoint.m_position, endPoint.m_position, ((float) i) / ((float) num9), lengthSnap);
-                    position.m_direction = endPoint.m_direction;
-                    float introduced107 = NetSegment.SampleTerrainHeight(info, position.m_position, visualize);
-                    position.m_position.y = introduced107 + position.m_elevation;
-                    position.m_minY = 0f;
-                    position.m_maxY = 1280f;
-                    position.m_terrainHeight = Singleton<TerrainManager>.instance.SampleRawHeightSmooth(position.m_position);
+                    item.m_position = LerpPosition(startPoint.m_position, endPoint.m_position, (float)i / (float)nodesNeeded, lengthSnap);
+                    item.m_direction = endPoint.m_direction;
+                    item.m_position.y = NetSegment.SampleTerrainHeight(info, item.m_position, visualize, item.m_elevation);
+                    item.m_minY = 0f;
+                    item.m_maxY = 1280f;
+                    item.m_terrainHeight = Singleton<TerrainManager>.instance.SampleRawHeightSmooth(item.m_position);
                 }
-                position.m_nodeInfo = null;
-                position.m_double = false;
-                nodeBuffer.Add(position);
+                nodeBuffer.Add(item);
             }
-            ToolBase.ToolErrors errors2 = CheckNodeHeights(info, nodeBuffer);
-            if ((errors2 != ToolBase.ToolErrors.None) && test)
+            ToolBase.ToolErrors toolErrors2 = CheckNodeHeights(info, nodeBuffer);
+            if (toolErrors2 != ToolBase.ToolErrors.None && test)
             {
-                none |= errors2;
+                toolErrors |= toolErrors2;
             }
-            for (int j = 1; j <= num9; j++)
+            float heightAboveGround = nodeBuffer.m_buffer[0].m_position.y - nodeBuffer.m_buffer[0].m_terrainHeight;
+            if (heightAboveGround > 0f && nodesNeeded >= 1 && nodeBuffer.m_buffer[1].m_position.y - nodeBuffer.m_buffer[1].m_terrainHeight < -8f)
             {
-                nodeBuffer.m_buffer[j].m_nodeInfo = info.m_netAI.GetInfo(nodeBuffer.m_buffer[j].m_position.y - nodeBuffer.m_buffer[j].m_terrainHeight, length, false, (j == num9) && endPoint.m_outside, curved, num9 >= 2, ref none);
+                heightAboveGround = 0f;
+                nodeBuffer.m_buffer[0].m_terrainHeight = nodeBuffer.m_buffer[0].m_position.y;
             }
-            int num14 = 1;
-            int num15 = 0;
-            for (NetInfo info4 = null; num14 <= num9; info4 = info5)
+            nodeBuffer.m_buffer[0].m_nodeInfo = info.m_netAI.GetInfo(heightAboveGround, heightAboveGround, length, startPoint.m_outside, false, isCurved, enableDouble, ref toolErrors);
+            for (int j = 1; j <= nodesNeeded; j++)
             {
-                info5 = nodeBuffer.m_buffer[num14].m_nodeInfo;
-                if ((num14 != num9) && (info5 == info4))
+                heightAboveGround = nodeBuffer.m_buffer[j].m_position.y - nodeBuffer.m_buffer[j].m_terrainHeight;
+                if (heightAboveGround > 0f)
                 {
-                    num15++;
-                    num14++;
+                    if (nodeBuffer.m_buffer[j - 1].m_position.y - nodeBuffer.m_buffer[j - 1].m_terrainHeight < -8f)
+                    {
+                        heightAboveGround = 0f;
+                        nodeBuffer.m_buffer[j].m_terrainHeight = nodeBuffer.m_buffer[j].m_position.y;
+                    }
+                    if (nodesNeeded > j && nodeBuffer.m_buffer[j + 1].m_position.y - nodeBuffer.m_buffer[j + 1].m_terrainHeight < -8f)
+                    {
+                        heightAboveGround = 0f;
+                        nodeBuffer.m_buffer[j].m_terrainHeight = nodeBuffer.m_buffer[j].m_position.y;
+                    }
+                }
+                nodeBuffer.m_buffer[j].m_nodeInfo = info.m_netAI.GetInfo(heightAboveGround, heightAboveGround, length, false, j == nodesNeeded && endPoint.m_outside, isCurved, enableDouble, ref toolErrors);
+            }
+            int currentNode = 1;
+            int num8 = 0;
+            NetInfo netInfo = null;
+            while (currentNode <= nodesNeeded)
+            {
+                NetInfo nodeInfo = nodeBuffer.m_buffer[currentNode].m_nodeInfo;
+                if (currentNode != nodesNeeded && nodeInfo == netInfo)
+                {
+                    num8++;
+                    currentNode++;
                 }
                 else
                 {
-                    if ((num15 != 0) && info4.m_netAI.RequireDoubleSegments())
+                    if (num8 != 0 && netInfo.m_netAI.RequireDoubleSegments())
                     {
-                        int num16 = (num14 - num15) - 1;
-                        int num17 = num14;
-                        if ((num15 & 1) == 0)
+                        int num9 = currentNode - num8 - 1;
+                        int num10 = currentNode;
+                        if ((num8 & 1) == 0)
                         {
-                            nodeBuffer.RemoveAt(num14 - 1);
-                            num9--;
-                            num17--;
-                            for (int num18 = num16 + 1; num18 < num17; num18++)
+                            nodeBuffer.RemoveAt(currentNode - 1);
+                            nodesNeeded--;
+                            num10--;
+                            for (int l = num9 + 1; l < num10; l++)
                             {
-                                float t = ((float) (num18 - num16)) / ((float) num15);
-                                nodeBuffer.m_buffer[num18].m_position = Vector3.Lerp(nodeBuffer.m_buffer[num16].m_position, nodeBuffer.m_buffer[num17].m_position, t);
-                                nodeBuffer.m_buffer[num18].m_direction = VectorUtils.NormalizeXZ(Vector3.Lerp(nodeBuffer.m_buffer[num16].m_direction, nodeBuffer.m_buffer[num17].m_direction, t));
-                                nodeBuffer.m_buffer[num18].m_elevation = Mathf.Lerp(nodeBuffer.m_buffer[num16].m_elevation, nodeBuffer.m_buffer[num17].m_elevation, t);
-                                nodeBuffer.m_buffer[num18].m_terrainHeight = Singleton<TerrainManager>.instance.SampleRawHeightSmooth(nodeBuffer.m_buffer[num18].m_position);
+                                float t = (float)(l - num9) / (float)num8;
+                                nodeBuffer.m_buffer[l].m_position = Vector3.Lerp(nodeBuffer.m_buffer[num9].m_position, nodeBuffer.m_buffer[num10].m_position, t);
+                                nodeBuffer.m_buffer[l].m_direction = VectorUtils.NormalizeXZ(Vector3.Lerp(nodeBuffer.m_buffer[num9].m_direction, nodeBuffer.m_buffer[num10].m_direction, t));
+                                nodeBuffer.m_buffer[l].m_elevation = Mathf.Lerp(nodeBuffer.m_buffer[num9].m_elevation, nodeBuffer.m_buffer[num10].m_elevation, t);
+                                nodeBuffer.m_buffer[l].m_terrainHeight = Singleton<TerrainManager>.instance.SampleRawHeightSmooth(nodeBuffer.m_buffer[l].m_position);
                             }
                         }
                         else
                         {
-                            num14++;
+                            currentNode++;
                         }
-                        for (int n = num16 + 1; n < num17; n++)
+                        for (int m = num9 + 1; m < num10; m++)
                         {
-                            nodeBuffer.m_buffer[n].m_double = ((n - num16) & 1) == 1;
+                            NetTool.NodePosition[] expr_DBB_cp_0 = nodeBuffer.m_buffer;
+                            int expr_DBB_cp_1 = m;
+                            expr_DBB_cp_0[expr_DBB_cp_1].m_double = (expr_DBB_cp_0[expr_DBB_cp_1].m_double | (m - num9 & 1) == 1);
                         }
                     }
                     else
                     {
-                        num14++;
+                        currentNode++;
                     }
-                    num15 = 1;
+                    num8 = 1;
                 }
+                netInfo = nodeInfo;
             }
-            NetTool.NodePosition position2 = nodeBuffer[0];
-            NetInfo nodeInfo = position2.m_nodeInfo;
-            bool flag5 = false;
-            if (((num10 == 0) && !test) && !visualize)
+            NetInfo startNodeInfo = nodeBuffer[0].m_nodeInfo;
+            bool flag3 = false;
+            if (startNodeIndex == 0 && !test && !visualize)
             {
                 if (startPoint.m_segment != 0)
                 {
-                    if (SplitSegment(startPoint.m_segment, out num10, vector5))
+                    if (SplitSegment(startPoint.m_segment, out startNodeIndex, startPosition))
                     {
-                        flag5 = true;
+                        flag3 = true;
                     }
                     startPoint.m_segment = 0;
                 }
-                else if (Singleton<NetManager>.instance.CreateNode(out num10, ref Singleton<SimulationManager>.instance.m_randomizer, nodeInfo, vector5, Singleton<SimulationManager>.instance.m_currentBuildIndex))
+                else if (Singleton<NetManager>.instance.CreateNode(out startNodeIndex, ref Singleton<SimulationManager>.instance.m_randomizer, startNodeInfo, startPosition, Singleton<SimulationManager>.instance.m_currentBuildIndex))
                 {
                     if (startPoint.m_outside)
                     {
-                        Singleton<NetManager>.instance.m_nodes.m_buffer[num10].m_flags |= NetNode.Flags.Outside;
+                        NetNode[] expr_EA2_cp_0 = Singleton<NetManager>.instance.m_nodes.m_buffer;
+                        ushort expr_EA2_cp_1 = startNodeIndex;
+                        expr_EA2_cp_0[(int)expr_EA2_cp_1].m_flags = (expr_EA2_cp_0[(int)expr_EA2_cp_1].m_flags | NetNode.Flags.Outside);
                     }
-                    if ((vector5.y - nodeBuffer.m_buffer[0].m_terrainHeight) < (terrainStep - 1))
+                    if (startPosition.y - nodeBuffer.m_buffer[0].m_terrainHeight < -8f && (startNodeInfo.m_netAI.SupportUnderground() || startNodeInfo.m_netAI.IsUnderground()))
                     {
-                        Singleton<NetManager>.instance.m_nodes.m_buffer[num10].m_flags |= NetNode.Flags.OnGround;
+                        Singleton<NetManager>.instance.m_nodes.m_buffer[(int)startNodeIndex].m_flags |= NetNode.Flags.Underground;
                     }
-                    NetTool.NodePosition position3 = nodeBuffer[0];
-                    Singleton<NetManager>.instance.m_nodes.m_buffer[num10].m_elevation = (byte) Mathf.Clamp(Mathf.RoundToInt(position3.m_elevation), 0, 0xff);
-                    SimulationManager local2 = Singleton<SimulationManager>.instance;
-                    local2.m_currentBuildIndex++;
-                    flag5 = true;
+                    else if (startPosition.y - nodeBuffer.m_buffer[0].m_terrainHeight < terrainStep - 1)
+                    {
+                        Singleton<NetManager>.instance.m_nodes.m_buffer[(int)startNodeIndex].m_flags |= NetNode.Flags.OnGround;
+                    }
+                    if (nodeBuffer.m_buffer[0].m_double)
+                    {
+                        Singleton<NetManager>.instance.m_nodes.m_buffer[(int)startNodeIndex].m_flags |= NetNode.Flags.Double;
+                    }
+                    if (startNodeInfo.m_netAI.IsUnderground())
+                    {
+                        Singleton<NetManager>.instance.m_nodes.m_buffer[(int)startNodeIndex].m_elevation = (byte)Mathf.Clamp(Mathf.RoundToInt(-nodeBuffer[0].m_elevation), 0, 255);
+                    }
+                    else
+                    {
+                        Singleton<NetManager>.instance.m_nodes.m_buffer[(int)startNodeIndex].m_elevation = (byte)Mathf.Clamp(Mathf.RoundToInt(nodeBuffer[0].m_elevation), 0, 255);
+                    }
+                    Singleton<SimulationManager>.instance.m_currentBuildIndex += 1u;
+                    flag3 = true;
                 }
-                startPoint.m_node = num10;
+                startPoint.m_node = startNodeIndex;
             }
-            NetNode data = new NetNode {
-                m_position = vector5
-            };
-            if ((vector5.y - nodeBuffer.m_buffer[0].m_terrainHeight) < (terrainStep - 1))
+            NetNode netNode = default(NetNode);
+            netNode.m_position = startPosition;
+            if (nodeBuffer.m_buffer[0].m_double)
             {
-                data.m_flags |= NetNode.Flags.OnGround;
+                netNode.m_flags |= NetNode.Flags.Double;
+            }
+            if (startPosition.y - nodeBuffer.m_buffer[0].m_terrainHeight < -8f && (startNodeInfo.m_netAI.SupportUnderground() || startNodeInfo.m_netAI.IsUnderground()))
+            {
+                netNode.m_flags |= NetNode.Flags.Underground;
+            }
+            else if (startPosition.y - nodeBuffer.m_buffer[0].m_terrainHeight < terrainStep - 1)
+            {
+                netNode.m_flags |= NetNode.Flags.OnGround;
             }
             if (startPoint.m_outside)
             {
-                data.m_flags |= NetNode.Flags.Outside;
+                netNode.m_flags |= NetNode.Flags.Outside;
             }
-            nodeInfo.m_netAI.GetNodeBuilding(0, ref data, out info7, out num21);
+            BuildingInfo nodeBuilding;
+            float heightOffset;
+            startNodeInfo.m_netAI.GetNodeBuilding(0, ref netNode, out nodeBuilding, out heightOffset);
             if (visualize)
             {
-                if ((info7 != null) && (num10 == 0))
+                if (nodeBuilding != null && (startNodeIndex == 0 || midleSegment != 0))
                 {
-                    Vector3 vector9 = vector5;
-                    vector9.y += num21;
-                    RenderNodeBuilding(info7, vector9, direction);
+                    Vector3 position = startPosition;
+                    position.y += heightOffset;
+                    RenderNodeBuilding(nodeBuilding, position, middleDirection);
                 }
-                if (nodeInfo.m_netAI.DisplayTempSegment())
+                if (startNodeInfo.m_netAI.DisplayTempSegment())
                 {
-                    RenderNode(nodeInfo, vector5, direction);
+                    RenderNode(startNodeInfo, startPosition, middleDirection);
                 }
             }
-            else if ((info7 != null) && ((data.m_flags & NetNode.Flags.Outside) == NetNode.Flags.None))
+            else if (nodeBuilding != null && (netNode.m_flags & NetNode.Flags.Outside) == NetNode.Flags.None)
             {
-                ushort node = startPoint.m_node;
-                ushort ignoreSegment = startPoint.m_segment;
+                ushort startPointNode = startPoint.m_node;
+                ushort startPointSegment = startPoint.m_segment;
                 ushort ignoredBuilding = GetIgnoredBuilding(startPoint);
-                errors2 = TestNodeBuilding(info7, vector5, direction, node, ignoreSegment, ignoredBuilding, test, collidingSegments, collidingBuildings);
-                if (errors2 != ToolBase.ToolErrors.None)
+                toolErrors2 = TestNodeBuilding(nodeBuilding, startPosition, middleDirection, startPointNode, startPointSegment, ignoredBuilding, test, numArray, numArray2);
+                if (test && toolErrors2 != ToolBase.ToolErrors.None)
                 {
-                    none |= errors2;
+                    toolErrors |= toolErrors2;
                 }
             }
-            if (((building != 0) && (num10 != 0)) && ((Singleton<NetManager>.instance.m_nodes.m_buffer[num10].m_flags & NetNode.Flags.Untouchable) == NetNode.Flags.None))
+            if (num2 != 0 && startNodeIndex != 0 && (Singleton<NetManager>.instance.m_nodes.m_buffer[(int)startNodeIndex].m_flags & NetNode.Flags.Untouchable) == NetNode.Flags.None)
             {
-                Singleton<NetManager>.instance.m_nodes.m_buffer[num10].m_flags |= NetNode.Flags.Untouchable;
-                Singleton<NetManager>.instance.m_nodes.m_buffer[num10].m_nextBuildingNode = Singleton<BuildingManager>.instance.m_buildings.m_buffer[building].m_netNode;
-                Singleton<BuildingManager>.instance.m_buildings.m_buffer[building].m_netNode = num10;
+                Singleton<NetManager>.instance.m_nodes.m_buffer[(int)startNodeIndex].m_flags |= NetNode.Flags.Untouchable;
+                Singleton<NetManager>.instance.m_nodes.m_buffer[(int)startNodeIndex].m_nextBuildingNode = Singleton<BuildingManager>.instance.m_buildings.m_buffer[(int)num2].m_netNode;
+                Singleton<BuildingManager>.instance.m_buildings.m_buffer[(int)num2].m_netNode = startNodeIndex;
             }
-            for (int k = 1; k <= num9; k++)
+            for (int nodeIndex = 1; nodeIndex <= nodesNeeded; nodeIndex++)
             {
-                Vector3 vector12;
-                Vector3 vector13;
-                NetTool.NodePosition position4 = nodeBuffer[k];
-                Vector3 endPos = position4.m_position;
-                NetTool.NodePosition position5 = nodeBuffer[k];
-                Vector3 vector11 = position5.m_direction;
-                NetSegment.CalculateMiddlePoints(vector5, direction, endPos, -vector11, smoothStart, smoothEnd, out vector12, out vector13);
-                nodeInfo = nodeBuffer.m_buffer[k].m_nodeInfo;
-                NetInfo info8 = null;
-                NetTool.NodePosition position6 = nodeBuffer[k - 1];
-                NetTool.NodePosition position7 = nodeBuffer[k - 1];
-                float b = position6.m_position.y - position7.m_terrainHeight;
-                NetTool.NodePosition position8 = nodeBuffer[k];
-                NetTool.NodePosition position9 = nodeBuffer[k];
-                float a = position8.m_position.y - position9.m_terrainHeight;
-                if (nodeBuffer.m_buffer[k].m_double)
+                Vector3 thisPosition = nodeBuffer[nodeIndex].m_position;
+                Vector3 thisDirection = nodeBuffer[nodeIndex].m_direction;
+                Vector3 middlePos1;
+                Vector3 middlePos2;
+                NetSegment.CalculateMiddlePoints(startPosition, middleDirection, thisPosition, -thisDirection, smoothStart, smoothEnd, out middlePos1, out middlePos2);
+                startNodeInfo = nodeBuffer.m_buffer[nodeIndex].m_nodeInfo;
+                float lastElevation = nodeBuffer[nodeIndex - 1].m_position.y - nodeBuffer[nodeIndex - 1].m_terrainHeight;
+                float thisElevation = nodeBuffer[nodeIndex].m_position.y - nodeBuffer[nodeIndex].m_terrainHeight;
+                NetInfo currentNodeInfo;
+                if (nodeBuffer.m_buffer[nodeIndex].m_double)
                 {
-                    info8 = nodeBuffer.m_buffer[k].m_nodeInfo;
-                    data.m_flags |= NetNode.Flags.Double;
+                    currentNodeInfo = nodeBuffer.m_buffer[nodeIndex].m_nodeInfo;
+                    netNode.m_flags |= NetNode.Flags.Double;
                 }
-                else if (nodeBuffer.m_buffer[k - 1].m_double)
+                else if (nodeBuffer.m_buffer[nodeIndex - 1].m_double)
                 {
-                    info8 = nodeBuffer.m_buffer[k - 1].m_nodeInfo;
-                    data.m_flags &= ~NetNode.Flags.Double;
+                    currentNodeInfo = nodeBuffer.m_buffer[nodeIndex - 1].m_nodeInfo;
+                    netNode.m_flags &= ~NetNode.Flags.Double;
                 }
                 else
                 {
-                    float num28 = Mathf.Max(a, b);
-                    for (int num29 = 1; num29 < 8; num29++)
+                    float minElevation = Mathf.Min(thisElevation, lastElevation);
+                    float maxElevation = Mathf.Max(thisElevation, lastElevation);
+                    if (maxElevation >= -8f)
                     {
-                        Vector3 worldPos = Bezier3.Position(vector5, vector12, vector13, endPos, ((float) num29) / 8f);
-                        float num30 = worldPos.y - Singleton<TerrainManager>.instance.SampleRawHeightSmooth(worldPos);
-                        num28 = Mathf.Max(num28, num30);
+                        for (int num15 = 1; num15 < 8; num15++)
+                        {
+                            Vector3 worldPos = Bezier3.Position(startPosition, middlePos1, middlePos2, thisPosition, (float)num15 / 8f);
+                            heightAboveGround = worldPos.y - Singleton<TerrainManager>.instance.SampleRawHeightSmooth(worldPos);
+                            maxElevation = Mathf.Max(maxElevation, heightAboveGround);
+                        }
                     }
-                    info8 = info.m_netAI.GetInfo(num28, length, (k == 1) && startPoint.m_outside, (k == num9) && endPoint.m_outside, curved, false, ref none);
-                    data.m_flags &= ~NetNode.Flags.Double;
+                    currentNodeInfo = info.m_netAI.GetInfo(minElevation, maxElevation, length, nodeIndex == 1 && startPoint.m_outside, nodeIndex == nodesNeeded && endPoint.m_outside, isCurved, false, ref toolErrors);
+                    netNode.m_flags &= ~NetNode.Flags.Double;
                 }
-                data.m_position = endPos;
-                if (a < (terrainStep - 1))
+                bool isOverGround = (netNode.m_flags & NetNode.Flags.Underground) != NetNode.Flags.None;
+                bool isUnderGround = !isOverGround;
+                netNode.m_position = thisPosition;
+                if (thisElevation < -8f && (startNodeInfo.m_netAI.SupportUnderground() || startNodeInfo.m_netAI.IsUnderground()))
                 {
-                    data.m_flags |= NetNode.Flags.OnGround;
+                    netNode.m_flags |= NetNode.Flags.Underground;
+                    netNode.m_flags &= ~NetNode.Flags.OnGround;
+                    isOverGround = false;
+                }
+                else if (thisElevation < terrainStep - 1)
+                {
+                    netNode.m_flags |= NetNode.Flags.OnGround;
+                    netNode.m_flags &= ~NetNode.Flags.Underground;
+                    isUnderGround = false;
                 }
                 else
                 {
-                    data.m_flags &= ~NetNode.Flags.OnGround;
+                    netNode.m_flags &= ~NetNode.Flags.OnGround;
+                    netNode.m_flags &= ~NetNode.Flags.Underground;
+                    isUnderGround = false;
                 }
-                if ((k == num9) && endPoint.m_outside)
+                if (nodeIndex == nodesNeeded && endPoint.m_outside)
                 {
-                    data.m_flags |= NetNode.Flags.Outside;
+                    netNode.m_flags |= NetNode.Flags.Outside;
                 }
-                nodeInfo.m_netAI.GetNodeBuilding(0, ref data, out info7, out num21);
+                else
+                {
+                    netNode.m_flags &= ~NetNode.Flags.Outside;
+                }
+                startNodeInfo.m_netAI.GetNodeBuilding(0, ref netNode, out nodeBuilding, out heightOffset);
                 if (visualize)
                 {
-                    if ((info7 != null) && ((k != num9) || (endPoint.m_node == 0)))
+                    if (nodeBuilding != null && (nodeIndex != nodesNeeded || endPoint.m_node == 0 || midleSegment != 0))
                     {
-                        Vector3 vector15 = endPos;
-                        vector15.y += num21;
-                        RenderNodeBuilding(info7, vector15, vector11);
+                        Vector3 position3 = thisPosition;
+                        position3.y += heightOffset;
+                        RenderNodeBuilding(nodeBuilding, position3, thisDirection);
                     }
-                    if (info8.m_netAI.DisplayTempSegment())
+                    if (currentNodeInfo.m_netAI.DisplayTempSegment())
                     {
-                        if (nodeBuffer.m_buffer[k].m_double)
+                        if (nodeBuffer.m_buffer[nodeIndex].m_double || isUnderGround)
                         {
-                            RenderSegment(info8, endPos, vector5, -vector11, -direction, smoothStart, smoothEnd);
+                            RenderSegment(currentNodeInfo, thisPosition, startPosition, -thisDirection, -middleDirection, smoothStart, smoothEnd);
                         }
                         else
                         {
-                            RenderSegment(info8, vector5, endPos, direction, vector11, smoothStart, smoothEnd);
+                            RenderSegment(currentNodeInfo, startPosition, thisPosition, middleDirection, thisDirection, smoothStart, smoothEnd);
                         }
                     }
                 }
                 else
                 {
-                    if (info8.m_canCollide)
+                    if (currentNodeInfo.m_canCollide)
                     {
-                        int num31 = Mathf.Max(2, 0x10 / num9);
-                        Vector3 vector16 = (Vector3) (new Vector3(direction.z, 0f, -direction.x) * info8.m_halfWidth);
-                        Quad3 quad = new Quad3 {
-                            a = vector5 - vector16,
-                            d = vector5 + vector16
-                        };
-                        for (int num32 = 1; num32 <= num31; num32++)
+                        int num16 = Mathf.Max(2, 16 / nodesNeeded);
+                        Vector3 b2 = new Vector3(middleDirection.z, 0f, -middleDirection.x) * currentNodeInfo.m_halfWidth;
+                        Quad3 quad = default(Quad3);
+                        quad.a = startPosition - b2;
+                        quad.d = startPosition + b2;
+                        for (int num17 = 1; num17 <= num16; num17++)
                         {
-                            ushort num33 = 0;
-                            ushort num34 = 0;
-                            ushort num35 = 0;
+                            ushort ignoreNode = 0;
+                            ushort ignoreNode2 = 0;
+                            ushort ignoreSegment = 0;
                             ushort ignoreBuilding = 0;
-                            bool outside = false;
-                            if ((k == 1) && (((num32 - 1) << 1) < num31))
+                            bool mOutside = false;
+                            if (nodeIndex == 1 && num17 - 1 << 1 < num16)
                             {
-                                num33 = startPoint.m_node;
-                                if ((k == num9) && ((num32 << 1) >= num31))
+                                ignoreNode = startPoint.m_node;
+                                if (nodeIndex == nodesNeeded && num17 << 1 >= num16)
                                 {
-                                    num34 = endPoint.m_node;
+                                    ignoreNode2 = endPoint.m_node;
                                 }
-                                num35 = startPoint.m_segment;
+                                ignoreSegment = startPoint.m_segment;
                                 ignoreBuilding = GetIgnoredBuilding(startPoint);
-                                outside = startPoint.m_outside;
+                                mOutside = startPoint.m_outside;
                             }
-                            else if ((k == num9) && ((num32 << 1) > num31))
+                            else if (nodeIndex == nodesNeeded && num17 << 1 > num16)
                             {
-                                num33 = endPoint.m_node;
-                                if ((k == 1) && (((num32 - 1) << 1) <= num31))
+                                ignoreNode = endPoint.m_node;
+                                if (nodeIndex == 1 && num17 - 1 << 1 <= num16)
                                 {
-                                    num34 = startPoint.m_node;
+                                    ignoreNode2 = startPoint.m_node;
                                 }
-                                num35 = endPoint.m_segment;
+                                ignoreSegment = endPoint.m_segment;
                                 ignoreBuilding = GetIgnoredBuilding(endPoint);
-                                outside = endPoint.m_outside;
+                                mOutside = endPoint.m_outside;
                             }
-                            else if (((num32 - 1) << 1) < num31)
+                            else if (num17 - 1 << 1 < num16)
                             {
-                                num33 = num10;
+                                ignoreNode = startNodeIndex;
                             }
-                            Vector3 vector17 = Bezier3.Position(vector5, vector12, vector13, endPos, ((float) num32) / ((float) num31));
-                            vector16 = Bezier3.Tangent(vector5, vector12, vector13, endPos, ((float) num32) / ((float) num31));
-                            Vector3 vector23 = new Vector3(vector16.z, 0f, -vector16.x);
-                            vector16 = (Vector3) (vector23.normalized * info8.m_halfWidth);
-                            quad.b = vector17 - vector16;
-                            quad.c = vector17 + vector16;
-                            float introduced109 = Mathf.Min(quad.a.y, quad.b.y);
-                            float minY = Mathf.Min(introduced109, Mathf.Min(quad.c.y, quad.d.y)) + info8.m_minHeight;
-                            float introduced110 = Mathf.Max(quad.a.y, quad.b.y);
-                            float maxY = Mathf.Max(introduced110, Mathf.Max(quad.c.y, quad.d.y)) + info8.m_maxHeight;
+                            Vector3 a = Bezier3.Position(startPosition, middlePos1, middlePos2, thisPosition, (float)num17 / (float)num16);
+                            b2 = Bezier3.Tangent(startPosition, middlePos1, middlePos2, thisPosition, (float)num17 / (float)num16);
+                            Vector3 vector8 = new Vector3(b2.z, 0f, -b2.x);
+                            b2 = vector8.normalized * currentNodeInfo.m_halfWidth;
+                            quad.b = a - b2;
+                            quad.c = a + b2;
+                            float minY = Mathf.Min(Mathf.Min(quad.a.y, quad.b.y), Mathf.Min(quad.c.y, quad.d.y)) + currentNodeInfo.m_minHeight;
+                            float maxY = Mathf.Max(Mathf.Max(quad.a.y, quad.b.y), Mathf.Max(quad.c.y, quad.d.y)) + currentNodeInfo.m_maxHeight;
                             Quad2 quad2 = Quad2.XZ(quad);
-                            Singleton<NetManager>.instance.OverlapQuad(quad2, minY, maxY, info8.m_class.m_layer, num33, num34, num35, collidingSegments);
-                            Singleton<BuildingManager>.instance.OverlapQuad(quad2, minY, maxY, info8.m_class.m_layer, ignoreBuilding, num33, num34, collidingBuildings);
-                            if ((properties.m_mode & ItemClass.Availability.AssetEditor) != ItemClass.Availability.None)
+                            Singleton<NetManager>.instance.OverlapQuad(quad2, minY, maxY, currentNodeInfo.m_class.m_layer, ignoreNode, ignoreNode2, ignoreSegment, numArray);
+                            Singleton<BuildingManager>.instance.OverlapQuad(quad2, minY, maxY, currentNodeInfo.m_class.m_layer, ignoreBuilding, ignoreNode, ignoreNode2, numArray2);
+                            if (test)
                             {
-                                float num39 = 256f;
-                                if (((quad2.a.x < -num39) || (quad2.a.x > num39)) || ((quad2.a.y < -num39) || (quad2.a.y > num39)))
+                                if ((properties.m_mode & ItemClass.Availability.AssetEditor) != ItemClass.Availability.None)
                                 {
-                                    none |= ToolBase.ToolErrors.OutOfArea;
+                                    float num18 = 256f;
+                                    if (quad2.a.x < -num18 || quad2.a.x > num18 || quad2.a.y < -num18 || quad2.a.y > num18)
+                                    {
+                                        toolErrors |= ToolBase.ToolErrors.OutOfArea;
+                                    }
+                                    if (quad2.b.x < -num18 || quad2.b.x > num18 || quad2.b.y < -num18 || quad2.b.y > num18)
+                                    {
+                                        toolErrors |= ToolBase.ToolErrors.OutOfArea;
+                                    }
+                                    if (quad2.c.x < -num18 || quad2.c.x > num18 || quad2.c.y < -num18 || quad2.c.y > num18)
+                                    {
+                                        toolErrors |= ToolBase.ToolErrors.OutOfArea;
+                                    }
+                                    if (quad2.d.x < -num18 || quad2.d.x > num18 || quad2.d.y < -num18 || quad2.d.y > num18)
+                                    {
+                                        toolErrors |= ToolBase.ToolErrors.OutOfArea;
+                                    }
                                 }
-                                if (((quad2.b.x < -num39) || (quad2.b.x > num39)) || ((quad2.b.y < -num39) || (quad2.b.y > num39)))
+                                else if (!mOutside && Singleton<GameAreaManager>.instance.QuadOutOfArea(quad2))
                                 {
-                                    none |= ToolBase.ToolErrors.OutOfArea;
+                                    toolErrors |= ToolBase.ToolErrors.OutOfArea;
                                 }
-                                if (((quad2.c.x < -num39) || (quad2.c.x > num39)) || ((quad2.c.y < -num39) || (quad2.c.y > num39)))
-                                {
-                                    none |= ToolBase.ToolErrors.OutOfArea;
-                                }
-                                if (((quad2.d.x < -num39) || (quad2.d.x > num39)) || ((quad2.d.y < -num39) || (quad2.d.y > num39)))
-                                {
-                                    none |= ToolBase.ToolErrors.OutOfArea;
-                                }
-                            }
-                            else if (!outside && Singleton<GameAreaManager>.instance.QuadOutOfArea(quad2))
-                            {
-                                none |= ToolBase.ToolErrors.OutOfArea;
                             }
                             quad.a = quad.b;
                             quad.d = quad.c;
                         }
                     }
-                    if ((info7 != null) && ((data.m_flags & NetNode.Flags.Outside) == NetNode.Flags.None))
+                    if (nodeBuilding != null && (netNode.m_flags & NetNode.Flags.Outside) == NetNode.Flags.None)
                     {
-                        ushort ignoreNode = (k != num9) ? ((ushort) 0) : endPoint.m_node;
-                        ushort num41 = (k != num9) ? ((ushort) 0) : endPoint.m_segment;
-                        ushort num42 = (k != num9) ? ((ushort) 0) : GetIgnoredBuilding(endPoint);
-                        Vector3 vector18 = endPos;
-                        vector18.y += num21;
-                        errors2 = TestNodeBuilding(info7, vector18, vector11, ignoreNode, num41, num42, test, collidingSegments, collidingBuildings);
-                        if (errors2 != ToolBase.ToolErrors.None)
+                        ushort ignoreNode3 = (nodeIndex != nodesNeeded) ? (ushort)0 : endPoint.m_node;
+                        ushort ignoreSegment2 = (nodeIndex != nodesNeeded) ? (ushort)0 : endPoint.m_segment;
+                        ushort ignoreBuilding2 = (nodeIndex != nodesNeeded) ? (ushort)0 : GetIgnoredBuilding(endPoint);
+                        Vector3 position4 = thisPosition;
+                        position4.y += heightOffset;
+                        toolErrors2 = TestNodeBuilding(nodeBuilding, position4, thisDirection, ignoreNode3, ignoreSegment2, ignoreBuilding2, test, numArray, numArray2);
+                        if (test && toolErrors2 != ToolBase.ToolErrors.None)
                         {
-                            none |= errors2;
+                            toolErrors |= toolErrors2;
                         }
                     }
                     if (test)
                     {
-                        cost += info8.m_netAI.GetConstructionCost(vector5, endPos, b, a);
-                        if ((needMoney && (cost > 0)) && (Singleton<EconomyManager>.instance.PeekResource(EconomyManager.Resource.Construction, cost) != cost))
+                        cost += currentNodeInfo.m_netAI.GetConstructionCost(startPosition, thisPosition, lastElevation, thisElevation);
+                        if (needMoney && cost > 0 && Singleton<EconomyManager>.instance.PeekResource(EconomyManager.Resource.Construction, cost) != cost)
                         {
-                            none |= ToolBase.ToolErrors.NotEnoughMoney;
+                            toolErrors |= ToolBase.ToolErrors.NotEnoughMoney;
+                        }
+                        if (!currentNodeInfo.m_netAI.BuildUnderground())
+                        {
+                            float num19 = Singleton<TerrainManager>.instance.WaterLevel(VectorUtils.XZ(startPosition));
+                            float num20 = Singleton<TerrainManager>.instance.WaterLevel(VectorUtils.XZ(thisPosition));
+                            if (num19 > startPosition.y || num20 > thisPosition.y)
+                            {
+                                toolErrors |= ToolBase.ToolErrors.CannotBuildOnWater;
+                            }
                         }
                         ushort startNode = 0;
                         ushort startSegment = 0;
                         ushort endNode = 0;
                         ushort endSegment = 0;
-                        if (k == 1)
+                        if (nodeIndex == 1)
                         {
                             startNode = startPoint.m_node;
                             startSegment = startPoint.m_segment;
                         }
-                        if (k == num9)
+                        if (nodeIndex == nodesNeeded)
                         {
                             endNode = endPoint.m_node;
                             endSegment = endPoint.m_segment;
                         }
-                        none |= CanCreateSegment(info8, startNode, startSegment, endNode, endSegment, index, vector5, endPos, direction, -vector11, collidingSegments);
+                        toolErrors |= CanCreateSegment(currentNodeInfo, startNode, startSegment, endNode, endSegment, midleSegment, startPosition, thisPosition, middleDirection, -thisDirection, numArray);
                     }
                     else
                     {
-                        cost += info8.m_netAI.GetConstructionCost(vector5, endPos, b, a);
-                        if (needMoney && (cost > 0))
+                        cost += currentNodeInfo.m_netAI.GetConstructionCost(startPosition, thisPosition, lastElevation, thisElevation);
+                        if (needMoney && cost > 0)
                         {
-                            cost -= Singleton<EconomyManager>.instance.FetchResource(EconomyManager.Resource.Construction, cost, info8.m_class);
+                            cost -= Singleton<EconomyManager>.instance.FetchResource(EconomyManager.Resource.Construction, cost, currentNodeInfo.m_class);
                             if (cost > 0)
                             {
-                                none |= ToolBase.ToolErrors.NotEnoughMoney;
+                                toolErrors |= ToolBase.ToolErrors.NotEnoughMoney;
                             }
                         }
-                        bool flag7 = num10 == 0;
-                        bool flag8 = false;
-                        ushort num47 = endPoint.m_node;
-                        if ((k != num9) || (num47 == 0))
+                        bool isUnSplit = startNodeIndex == 0;
+                        bool isSplit = false;
+                        ushort endPointNode = endPoint.m_node;
+                        if (nodeIndex != nodesNeeded || endPointNode == 0)
                         {
-                            if ((k == num9) && (endPoint.m_segment != 0))
+                            if (nodeIndex == nodesNeeded && endPoint.m_segment != 0)
                             {
-                                if (SplitSegment(endPoint.m_segment, out num47, endPos))
+                                if (SplitSegment(endPoint.m_segment, out endPointNode, thisPosition))
                                 {
-                                    flag8 = true;
+                                    isSplit = true;
                                 }
                                 else
                                 {
-                                    flag7 = true;
+                                    isUnSplit = true;
                                 }
                                 endPoint.m_segment = 0;
                             }
-                            else if (Singleton<NetManager>.instance.CreateNode(out num47, ref Singleton<SimulationManager>.instance.m_randomizer, nodeInfo, endPos, Singleton<SimulationManager>.instance.m_currentBuildIndex))
+                            else if (Singleton<NetManager>.instance.CreateNode(out endPointNode, ref Singleton<SimulationManager>.instance.m_randomizer, startNodeInfo, thisPosition, Singleton<SimulationManager>.instance.m_currentBuildIndex))
                             {
-                                if ((k == num9) && endPoint.m_outside)
+                                if (nodeIndex == nodesNeeded && endPoint.m_outside)
                                 {
-                                    Singleton<NetManager>.instance.m_nodes.m_buffer[num47].m_flags |= NetNode.Flags.Outside;
+                                    Singleton<NetManager>.instance.m_nodes.m_buffer[endPointNode].m_flags |= NetNode.Flags.Outside;
                                 }
-                                if (a < (terrainStep - 1))
+                                if (thisElevation < -8f && (startNodeInfo.m_netAI.SupportUnderground() || startNodeInfo.m_netAI.IsUnderground()))
                                 {
-                                    Singleton<NetManager>.instance.m_nodes.m_buffer[num47].m_flags |= NetNode.Flags.OnGround;
+                                    Singleton<NetManager>.instance.m_nodes.m_buffer[endPointNode].m_flags |= NetNode.Flags.Underground;
                                 }
-                                if (nodeBuffer.m_buffer[k].m_double)
+                                else if (thisElevation < terrainStep - 1)
                                 {
-                                    Singleton<NetManager>.instance.m_nodes.m_buffer[num47].m_flags |= NetNode.Flags.Double;
+                                    Singleton<NetManager>.instance.m_nodes.m_buffer[endPointNode].m_flags |= NetNode.Flags.OnGround;
                                 }
-                                NetTool.NodePosition position10 = nodeBuffer[k];
-                                Singleton<NetManager>.instance.m_nodes.m_buffer[num47].m_elevation = (byte) Mathf.Clamp(Mathf.RoundToInt(position10.m_elevation), 0, 0xff);
-                                SimulationManager local3 = Singleton<SimulationManager>.instance;
-                                local3.m_currentBuildIndex++;
-                                flag8 = true;
+                                if (nodeBuffer.m_buffer[nodeIndex].m_double)
+                                {
+                                    Singleton<NetManager>.instance.m_nodes.m_buffer[endPointNode].m_flags |= NetNode.Flags.Double;
+                                }
+                                if (startNodeInfo.m_netAI.IsUnderground())
+                                {
+                                    Singleton<NetManager>.instance.m_nodes.m_buffer[(int)endPointNode].m_elevation = (byte)Mathf.Clamp(Mathf.RoundToInt(-nodeBuffer[nodeIndex].m_elevation), 0, 255);
+                                }
+                                else
+                                {
+                                    Singleton<NetManager>.instance.m_nodes.m_buffer[(int)endPointNode].m_elevation = (byte)Mathf.Clamp(Mathf.RoundToInt(nodeBuffer[nodeIndex].m_elevation), 0, 255);
+                                }
+                                Singleton<SimulationManager>.instance.m_currentBuildIndex += 1u;
+                                isSplit = true;
                             }
                             else
                             {
-                                flag7 = true;
+                                isUnSplit = true;
                             }
-                            if (k == num9)
+                            if (nodeIndex == nodesNeeded)
                             {
-                                endPoint.m_node = num47;
-                            }
-                        }
-                        if ((!flag7 && !curved) && (Singleton<NetManager>.instance.m_nodes.m_buffer[num10].m_elevation == Singleton<NetManager>.instance.m_nodes.m_buffer[num47].m_elevation))
-                        {
-                            Vector3 vector19 = vector5;
-                            if (k == 1)
-                            {
-                                TryMoveNode(ref num10, ref direction, info8, endPos);
-                                vector19 = Singleton<NetManager>.instance.m_nodes.m_buffer[num10].m_position;
-                            }
-                            if (k == num9)
-                            {
-                                Vector3 vector20 = -vector11;
-                                TryMoveNode(ref num47, ref vector20, info8, vector19);
-                                vector11 = -vector20;
+                                endPoint.m_node = endPointNode;
                             }
                         }
-                        if (!flag7)
+                        if (!isUnSplit && !isCurved && Singleton<NetManager>.instance.m_nodes.m_buffer[(int)startNodeIndex].m_elevation == Singleton<NetManager>.instance.m_nodes.m_buffer[(int)endPointNode].m_elevation)
                         {
-                            if (nodeBuffer.m_buffer[k].m_double)
+                            Vector3 endPos = startPosition;
+                            if (nodeIndex == 1)
                             {
-                                flag7 = !Singleton<NetManager>.instance.CreateSegment(out segment, ref Singleton<SimulationManager>.instance.m_randomizer, info8, num47, num10, -vector11, direction, currentBuildIndex, Singleton<SimulationManager>.instance.m_currentBuildIndex, !flag);
+                                TryMoveNode(ref startNodeIndex, ref middleDirection, currentNodeInfo, thisPosition);
+                                endPos = Singleton<NetManager>.instance.m_nodes.m_buffer[(int)startNodeIndex].m_position;
                             }
-                            else if (nodeBuffer.m_buffer[k - 1].m_double)
+                            if (nodeIndex == nodesNeeded)
                             {
-                                flag7 = !Singleton<NetManager>.instance.CreateSegment(out segment, ref Singleton<SimulationManager>.instance.m_randomizer, info8, num10, num47, direction, -vector11, currentBuildIndex, Singleton<SimulationManager>.instance.m_currentBuildIndex, flag);
+                                Vector3 a2 = -thisDirection;
+                                TryMoveNode(ref endPointNode, ref a2, currentNodeInfo, endPos);
+                                thisDirection = -a2;
                             }
-                            else if (((((num9 - k) & 1) == 0) && (k != 1)) && curved)
+                        }
+                        if (!isUnSplit)
+                        {
+                            if (nodeBuffer.m_buffer[nodeIndex].m_double || isUnderGround)
                             {
-                                flag7 = !Singleton<NetManager>.instance.CreateSegment(out segment, ref Singleton<SimulationManager>.instance.m_randomizer, info8, num47, num10, -vector11, direction, currentBuildIndex, Singleton<SimulationManager>.instance.m_currentBuildIndex, !flag);
+                                isUnSplit = !Singleton<NetManager>.instance.CreateSegment(out segment, ref Singleton<SimulationManager>.instance.m_randomizer, currentNodeInfo, endPointNode, startNodeIndex, -thisDirection, middleDirection, currentBuildIndex, Singleton<SimulationManager>.instance.m_currentBuildIndex, !flag);
+                            }
+                            else if (nodeBuffer.m_buffer[nodeIndex - 1].m_double || isOverGround)
+                            {
+                                isUnSplit = !Singleton<NetManager>.instance.CreateSegment(out segment, ref Singleton<SimulationManager>.instance.m_randomizer, currentNodeInfo, startNodeIndex, endPointNode, middleDirection, -thisDirection, currentBuildIndex, Singleton<SimulationManager>.instance.m_currentBuildIndex, flag);
+                            }
+                            else if ((nodesNeeded - nodeIndex & 1) == 0 && nodeIndex != 1 && isCurved)
+                            {
+                                isUnSplit = !Singleton<NetManager>.instance.CreateSegment(out segment, ref Singleton<SimulationManager>.instance.m_randomizer, currentNodeInfo, endPointNode, startNodeIndex, -thisDirection, middleDirection, currentBuildIndex, Singleton<SimulationManager>.instance.m_currentBuildIndex, !flag);
                             }
                             else
                             {
-                                flag7 = !Singleton<NetManager>.instance.CreateSegment(out segment, ref Singleton<SimulationManager>.instance.m_randomizer, info8, num10, num47, direction, -vector11, currentBuildIndex, Singleton<SimulationManager>.instance.m_currentBuildIndex, flag);
+                                isUnSplit = !Singleton<NetManager>.instance.CreateSegment(out segment, ref Singleton<SimulationManager>.instance.m_randomizer, currentNodeInfo, startNodeIndex, endPointNode, middleDirection, -thisDirection, currentBuildIndex, Singleton<SimulationManager>.instance.m_currentBuildIndex, flag);
                             }
-                            if (!flag7)
+                            if (!isUnSplit)
                             {
-                                SimulationManager local4 = Singleton<SimulationManager>.instance;
-                                local4.m_currentBuildIndex += 2;
+                                Singleton<SimulationManager>.instance.m_currentBuildIndex += 2u;
                                 currentBuildIndex = Singleton<SimulationManager>.instance.m_currentBuildIndex;
-                                DispatchPlacementEffect(vector5, vector12, vector13, endPos, info.m_halfWidth, false);
-                                info8.m_netAI.ManualActivation(segment, ref Singleton<NetManager>.instance.m_segments.m_buffer[segment], oldInfo);
+                                DispatchPlacementEffect(startPosition, middlePos1, middlePos2, thisPosition, info.m_halfWidth, false);
+                                currentNodeInfo.m_netAI.ManualActivation(segment, ref Singleton<NetManager>.instance.m_segments.m_buffer[(int)segment], oldInfo);
                             }
                         }
-                        if (flag7)
+                        if (isUnSplit)
                         {
-                            if (flag5 && (num10 != 0))
+                            if (flag3 && startNodeIndex != 0)
                             {
-                                Singleton<NetManager>.instance.ReleaseNode(num10);
-                                num10 = 0;
+                                Singleton<NetManager>.instance.ReleaseNode(startNodeIndex);
+                                startNodeIndex = 0;
                             }
-                            if (flag8 && (num47 != 0))
+                            if (isSplit && endPointNode != 0)
                             {
-                                Singleton<NetManager>.instance.ReleaseNode(num47);
-                                num47 = 0;
+                                Singleton<NetManager>.instance.ReleaseNode(endPointNode);
+                                endPointNode = 0;
                             }
                         }
-                        if (((building != 0) && (num47 != 0)) && ((Singleton<NetManager>.instance.m_nodes.m_buffer[num47].m_flags & NetNode.Flags.Untouchable) == NetNode.Flags.None))
+                        if (num2 != 0 && endPointNode != 0 && (Singleton<NetManager>.instance.m_nodes.m_buffer[(int)endPointNode].m_flags & NetNode.Flags.Untouchable) == NetNode.Flags.None)
                         {
-                            Singleton<NetManager>.instance.m_nodes.m_buffer[num47].m_flags |= NetNode.Flags.Untouchable;
-                            Singleton<NetManager>.instance.m_nodes.m_buffer[num47].m_nextBuildingNode = Singleton<BuildingManager>.instance.m_buildings.m_buffer[building].m_netNode;
-                            Singleton<BuildingManager>.instance.m_buildings.m_buffer[building].m_netNode = num47;
+                            NetNode[] expr_226A_cp_0 = Singleton<NetManager>.instance.m_nodes.m_buffer;
+                            ushort expr_226A_cp_1 = endPointNode;
+                            expr_226A_cp_0[(int)expr_226A_cp_1].m_flags = (expr_226A_cp_0[(int)expr_226A_cp_1].m_flags | NetNode.Flags.Untouchable);
+                            Singleton<NetManager>.instance.m_nodes.m_buffer[(int)endPointNode].m_nextBuildingNode = Singleton<BuildingManager>.instance.m_buildings.m_buffer[(int)num2].m_netNode;
+                            Singleton<BuildingManager>.instance.m_buildings.m_buffer[(int)num2].m_netNode = endPointNode;
                         }
-                        if (((building != 0) && (segment != 0)) && ((Singleton<NetManager>.instance.m_segments.m_buffer[segment].m_flags & NetSegment.Flags.Untouchable) == NetSegment.Flags.None))
+                        if (num2 != 0 && segment != 0 && (Singleton<NetManager>.instance.m_segments.m_buffer[(int)segment].m_flags & NetSegment.Flags.Untouchable) == NetSegment.Flags.None)
                         {
-                            Singleton<NetManager>.instance.m_segments.m_buffer[segment].m_flags |= NetSegment.Flags.Untouchable;
+                            NetSegment[] expr_2318_cp_0 = Singleton<NetManager>.instance.m_segments.m_buffer;
+                            ushort expr_2318_cp_1 = segment;
+                            expr_2318_cp_0[(int)expr_2318_cp_1].m_flags = (expr_2318_cp_0[(int)expr_2318_cp_1].m_flags | NetSegment.Flags.Untouchable);
                         }
-                        num10 = num47;
+                        startNodeIndex = endPointNode;
                     }
                 }
-                vector5 = endPos;
-                direction = vector11;
-                flag5 = false;
+                startPosition = thisPosition;
+                middleDirection = thisDirection;
+                flag3 = false;
             }
             if (visualize)
             {
-                if (nodeInfo.m_netAI.DisplayTempSegment())
+                if (startNodeInfo.m_netAI.DisplayTempSegment())
                 {
-                    RenderNode(nodeInfo, vector5, -direction);
+                    RenderNode(startNodeInfo, startPosition, -middleDirection);
                 }
             }
             else
             {
-                BuildingTool.IgnoreRelocateSegments(relocateBuildingID, collidingSegments, collidingBuildings);
-                if (CheckCollidingSegments(collidingSegments, collidingBuildings, index) && ((none & (ToolBase.ToolErrors.TooManyConnections | ToolBase.ToolErrors.HeightTooHigh | ToolBase.ToolErrors.SlopeTooSteep | ToolBase.ToolErrors.TooShort | ToolBase.ToolErrors.InvalidShape)) == ToolBase.ToolErrors.None))
+                BuildingTool.IgnoreRelocateSegments(relocateBuildingID, numArray, numArray2);
+                if (CheckCollidingSegments(numArray, numArray2, midleSegment) && (toolErrors & (ToolBase.ToolErrors.InvalidShape | ToolBase.ToolErrors.TooShort | ToolBase.ToolErrors.SlopeTooSteep | ToolBase.ToolErrors.HeightTooHigh | ToolBase.ToolErrors.TooManyConnections)) == ToolBase.ToolErrors.None)
                 {
-                    none |= ToolBase.ToolErrors.FirstVisibleError;
+                    toolErrors |= ToolBase.ToolErrors.ObjectCollision;
                 }
-                if (BuildingTool.CheckCollidingBuildings(collidingBuildings, collidingSegments))
+                if (BuildingTool.CheckCollidingBuildings(numArray2, numArray))
                 {
-                    none |= ToolBase.ToolErrors.FirstVisibleError;
+                    toolErrors |= ToolBase.ToolErrors.ObjectCollision;
                 }
                 if (!test)
                 {
-                    ReleaseNonImportantSegments(collidingSegments);
-                    BuildingTool.ReleaseNonImportantBuildings(collidingBuildings);
+                    ReleaseNonImportantSegments(numArray);
+                    BuildingTool.ReleaseNonImportantBuildings(numArray2);
                 }
             }
-            for (int m = 0; m <= num9; m++)
+            for (int num22 = 0; num22 <= nodesNeeded; num22++)
             {
-                nodeBuffer.m_buffer[m].m_nodeInfo = null;
+                nodeBuffer.m_buffer[num22].m_nodeInfo = null;
             }
             firstNode = startPoint.m_node;
             lastNode = endPoint.m_node;
-            errors3 = none;
+            result = toolErrors;
         }
         finally
         {
@@ -1472,39 +1594,40 @@ public class NetToolFine : ToolBase
                 properties.EndColliding();
             }
         }
-        return errors3;
+        return result;
     }
 
+
+    //Modified.
     private bool CreateNodeImpl(bool switchDirection)
     {
         NetInfo prefab = this.m_prefab;
         if (prefab != null)
         {
-            if ((this.m_mode == NetTool.Mode.Upgrade) && (this.m_controlPointCount < 2))
+            if (this.m_mode == NetTool.Mode.Upgrade && this.m_controlPointCount < 2)
             {
                 prefab.m_netAI.UpgradeFailed();
             }
             else
             {
-                NetTool.ControlPoint point;
-                NetTool.ControlPoint point2;
-                NetTool.ControlPoint point3;
-                ushort num;
-                ushort num2;
-                int num3;
-                int num4;
-                if ((this.m_mode == NetTool.Mode.Straight) && (this.m_controlPointCount < 1))
+                if (this.m_mode == NetTool.Mode.Straight && this.m_controlPointCount < 1)
                 {
-                    this.m_elevation = Mathf.Max(0, Mathf.RoundToInt(this.m_controlPoints[this.m_controlPointCount].m_elevation / terrainStep));
+                    int min;
+                    int max;
+                    GetAdjustedElevationLimits(prefab.m_netAI, out min, out max);
+                    this.m_elevation = Mathf.Clamp(Mathf.RoundToInt(this.m_controlPoints[this.m_controlPointCount].m_elevation / terrainStep), min, max);
                     this.m_controlPoints[this.m_controlPointCount + 1] = this.m_controlPoints[this.m_controlPointCount];
                     this.m_controlPoints[this.m_controlPointCount + 1].m_node = 0;
                     this.m_controlPoints[this.m_controlPointCount + 1].m_segment = 0;
                     this.m_controlPointCount++;
                     return true;
                 }
-                if ((((this.m_mode == NetTool.Mode.Curved) || (this.m_mode == NetTool.Mode.Freeform)) && (this.m_controlPointCount < 2)) && ((this.m_controlPointCount == 0) || ((this.m_controlPoints[1].m_node == 0) && (this.m_controlPoints[1].m_segment == 0))))
+                if ((this.m_mode == NetTool.Mode.Curved || this.m_mode == NetTool.Mode.Freeform) && this.m_controlPointCount < 2 && (this.m_controlPointCount == 0 || (this.m_controlPoints[1].m_node == 0 && this.m_controlPoints[1].m_segment == 0)))
                 {
-                    this.m_elevation = Mathf.Max(0, Mathf.RoundToInt(this.m_controlPoints[this.m_controlPointCount].m_elevation / terrainStep));
+                    int min;
+                    int max;
+                    GetAdjustedElevationLimits(prefab.m_netAI, out min, out max);
+                    this.m_elevation = Mathf.Clamp(Mathf.RoundToInt(this.m_controlPoints[this.m_controlPointCount].m_elevation / terrainStep), min, max);
                     this.m_controlPoints[this.m_controlPointCount + 1] = this.m_controlPoints[this.m_controlPointCount];
                     this.m_controlPoints[this.m_controlPointCount + 1].m_node = 0;
                     this.m_controlPoints[this.m_controlPointCount + 1].m_segment = 0;
@@ -1517,114 +1640,146 @@ public class NetToolFine : ToolBase
                     this.m_upgrading = true;
                     this.m_switchingDir = switchDirection;
                 }
+                NetTool.ControlPoint controlPoint;
+                NetTool.ControlPoint controlPoint2;
+                NetTool.ControlPoint controlPoint3;
                 if (this.m_controlPointCount == 1)
                 {
-                    point = this.m_controlPoints[0];
-                    point3 = this.m_controlPoints[1];
-                    point2 = this.m_controlPoints[1];
-                    point2.m_node = 0;
-                    point2.m_segment = 0;
-                    point2.m_position = (Vector3) ((this.m_controlPoints[0].m_position + this.m_controlPoints[1].m_position) * 0.5f);
-                    point2.m_elevation = (this.m_controlPoints[0].m_elevation + this.m_controlPoints[1].m_elevation) * 0.5f;
+                    controlPoint = this.m_controlPoints[0];
+                    controlPoint2 = this.m_controlPoints[1];
+                    controlPoint3 = this.m_controlPoints[1];
+                    controlPoint3.m_node = 0;
+                    controlPoint3.m_segment = 0;
+                    controlPoint3.m_position = (this.m_controlPoints[0].m_position + this.m_controlPoints[1].m_position) * 0.5f;
+                    controlPoint3.m_elevation = (this.m_controlPoints[0].m_elevation + this.m_controlPoints[1].m_elevation) * 0.5f;
                 }
                 else
                 {
-                    point = this.m_controlPoints[0];
-                    point2 = this.m_controlPoints[1];
-                    point3 = this.m_controlPoints[2];
+                    controlPoint = this.m_controlPoints[0];
+                    controlPoint3 = this.m_controlPoints[1];
+                    controlPoint2 = this.m_controlPoints[2];
                 }
-                bool flag2 = (point3.m_node != 0) || (point3.m_segment != 0);
-                if (CreateNode(prefab, point, point2, point3, m_nodePositionsSimulation, 0x3e8, true, false, true, needMoney, false, switchDirection, 0, out num, out num2, out num3, out num4) == ToolBase.ToolErrors.None)
+                NetTool.ControlPoint startPoint = controlPoint;
+                NetTool.ControlPoint middlePoint = controlPoint3;
+                NetTool.ControlPoint endPoint = controlPoint2;
+                bool secondaryControlPoints = GetSecondaryControlPoints(prefab, ref startPoint, ref middlePoint, ref endPoint);
+                if (this.CreateNodeImpl(prefab, needMoney, switchDirection, controlPoint, controlPoint3, controlPoint2))
                 {
-                    CreateNode(prefab, point, point2, point3, m_nodePositionsSimulation, 0x3e8, false, false, true, needMoney, false, switchDirection, 0, out num, out num2, out num3, out num4);
-                    NetManager instance = Singleton<NetManager>.instance;
-                    point3.m_segment = 0;
-                    point3.m_node = num;
-                    if (num2 != 0)
+                    if (secondaryControlPoints)
                     {
-                        if (this.m_upgrading)
-                        {
-                            while (!Monitor.TryEnter(this.m_upgradedSegments, SimulationManager.SYNCHRONIZE_TIMEOUT))
-                            {
-                            }
-                            try
-                            {
-                                this.m_upgradedSegments.Add(num2);
-                            }
-                            finally
-                            {
-                                Monitor.Exit(this.m_upgradedSegments);
-                            }
-                        }
-                        if (instance.m_segments.m_buffer[num2].m_startNode == num)
-                        {
-                            point3.m_direction = -instance.m_segments.m_buffer[num2].m_startDirection;
-                        }
-                        else if (instance.m_segments.m_buffer[num2].m_endNode == num)
-                        {
-                            point3.m_direction = -instance.m_segments.m_buffer[num2].m_endDirection;
-                        }
-                    }
-                    this.m_controlPoints[0] = point3;
-                    this.m_elevation = Mathf.Max(0, Mathf.RoundToInt(point3.m_elevation / terrainStep));
-                    if ((num != 0) && ((instance.m_nodes.m_buffer[num].m_flags & NetNode.Flags.Outside) != NetNode.Flags.None))
-                    {
-                        this.m_controlPointCount = 0;
-                    }
-                    else if ((this.m_mode == NetTool.Mode.Freeform) && (this.m_controlPointCount == 2))
-                    {
-                        point2.m_position = ((Vector3) (point3.m_position * 2f)) - point2.m_position;
-                        point2.m_elevation = (point3.m_elevation * 2f) - point2.m_elevation;
-                        point2.m_direction = point3.m_direction;
-                        point2.m_node = 0;
-                        point2.m_segment = 0;
-                        this.m_controlPoints[1] = point2;
-                        this.m_controlPointCount = 2;
-                    }
-                    else
-                    {
-                        this.m_controlPointCount = 1;
-                    }
-                    if (prefab.m_class.m_service > ItemClass.Service.Office)
-                    {
-                        int index = (((int) prefab.m_class.m_service) - 8) - 1;
-                        Singleton<GuideManager>.instance.m_serviceNotUsed[index].Disable();
-                        Singleton<GuideManager>.instance.m_serviceNeeded[index].Deactivate();
-                    }
-                    if (prefab.m_class.m_service == ItemClass.Service.Road)
-                    {
-                        Singleton<CoverageManager>.instance.CoverageUpdated(ItemClass.Service.None, ItemClass.SubService.None, ItemClass.Level.None);
-                        Singleton<NetManager>.instance.m_roadsNotUsed.Disable();
-                    }
-                    if (((((prefab.m_class.m_service == ItemClass.Service.Road) || (prefab.m_class.m_service == ItemClass.Service.PublicTransport)) || (prefab.m_class.m_service == ItemClass.Service.Beautification)) && (prefab.m_hasForwardVehicleLanes || prefab.m_hasBackwardVehicleLanes)) && (!prefab.m_hasForwardVehicleLanes || !prefab.m_hasBackwardVehicleLanes))
-                    {
-                        Singleton<NetManager>.instance.m_onewayRoadPlacement.Disable();
-                    }
-                    if (this.m_upgrading)
-                    {
-                        prefab.m_netAI.UpgradeSucceeded();
-                    }
-                    else if (flag2 && (num != 0))
-                    {
-                        prefab.m_netAI.ConnectionSucceeded(num, ref Singleton<NetManager>.instance.m_nodes.m_buffer[num]);
-                    }
-                    Singleton<GuideManager>.instance.m_notEnoughMoney.Deactivate();
-                    if ((((Singleton<GuideManager>.instance.m_properties != null) && !this.m_upgrading) && ((num2 != 0) && (this.m_bulldozerTool != null))) && ((this.m_bulldozerTool.m_lastNetInfo != null) && this.m_bulldozerTool.m_lastNetInfo.m_netAI.CanUpgradeTo(prefab)))
-                    {
-                        ushort startNode = instance.m_segments.m_buffer[num2].m_startNode;
-                        ushort endNode = instance.m_segments.m_buffer[num2].m_endNode;
-                        Vector3 position = instance.m_nodes.m_buffer[startNode].m_position;
-                        Vector3 vector2 = instance.m_nodes.m_buffer[endNode].m_position;
-                        Vector3 startDirection = instance.m_segments.m_buffer[num2].m_startDirection;
-                        Vector3 endDirection = instance.m_segments.m_buffer[num2].m_endDirection;
-                        if (((Vector3.SqrMagnitude(this.m_bulldozerTool.m_lastStartPos - position) < 1f) && (Vector3.SqrMagnitude(this.m_bulldozerTool.m_lastEndPos - vector2) < 1f)) && ((Vector2.Dot(VectorUtils.XZ(this.m_bulldozerTool.m_lastStartDir), VectorUtils.XZ(startDirection)) > 0.99f) && (Vector2.Dot(VectorUtils.XZ(this.m_bulldozerTool.m_lastEndDir), VectorUtils.XZ(endDirection)) > 0.99f)))
-                        {
-                            Singleton<NetManager>.instance.m_manualUpgrade.Activate(Singleton<GuideManager>.instance.m_properties.m_manualUpgrade, prefab.m_class.m_service);
-                        }
+                        this.CreateNodeImpl(prefab, needMoney, switchDirection, startPoint, middlePoint, endPoint);
                     }
                     return true;
                 }
             }
+        }
+        return false;
+    }
+
+    //Modified
+    private bool CreateNodeImpl(NetInfo info, bool needMoney, bool switchDirection, NetTool.ControlPoint startPoint, NetTool.ControlPoint middlePoint, NetTool.ControlPoint endPoint)
+    {
+        bool flag = endPoint.m_node != 0 || endPoint.m_segment != 0;
+        ushort num;
+        ushort num2;
+        int num3;
+        int num4;
+        if (CreateNode(info, startPoint, middlePoint, endPoint, m_nodePositionsSimulation, 1000, true, false, true, needMoney, false, switchDirection, 0, out num, out num2, out num3, out num4) == ToolBase.ToolErrors.None)
+        {
+            CreateNode(info, startPoint, middlePoint, endPoint, m_nodePositionsSimulation, 1000, false, false, true, needMoney, false, switchDirection, 0, out num, out num2, out num3, out num4);
+            NetManager instance = Singleton<NetManager>.instance;
+            endPoint.m_segment = 0;
+            endPoint.m_node = num;
+            if (num2 != 0)
+            {
+                if (this.m_upgrading)
+                {
+                    while (!Monitor.TryEnter(this.m_upgradedSegments, SimulationManager.SYNCHRONIZE_TIMEOUT))
+                    {
+                    }
+                    try
+                    {
+                        this.m_upgradedSegments.Add(num2);
+                    }
+                    finally
+                    {
+                        Monitor.Exit(this.m_upgradedSegments);
+                    }
+                }
+                if (instance.m_segments.m_buffer[(int)num2].m_startNode == num)
+                {
+                    endPoint.m_direction = -instance.m_segments.m_buffer[(int)num2].m_startDirection;
+                }
+                else if (instance.m_segments.m_buffer[(int)num2].m_endNode == num)
+                {
+                    endPoint.m_direction = -instance.m_segments.m_buffer[(int)num2].m_endDirection;
+                }
+            }
+            this.m_controlPoints[0] = endPoint;
+            //If we're extending a road, figure out how high we're supposed to be.
+            if (!this.m_upgrading)
+            {
+                int min;
+                int max;
+                GetAdjustedElevationLimits(info.m_netAI, out min, out max);
+                this.m_elevation = Mathf.Clamp(Mathf.RoundToInt(endPoint.m_elevation / terrainStep), min, max);
+            }
+            if (num != 0 && (instance.m_nodes.m_buffer[(int)num].m_flags & NetNode.Flags.Outside) != NetNode.Flags.None)
+            {
+                this.m_controlPointCount = 0;
+            }
+            else if (this.m_mode == NetTool.Mode.Freeform && this.m_controlPointCount == 2)
+            {
+                middlePoint.m_position = endPoint.m_position * 2f - middlePoint.m_position;
+                middlePoint.m_elevation = endPoint.m_elevation * 2f - middlePoint.m_elevation;
+                middlePoint.m_direction = endPoint.m_direction;
+                middlePoint.m_node = 0;
+                middlePoint.m_segment = 0;
+                this.m_controlPoints[1] = middlePoint;
+                this.m_controlPointCount = 2;
+            }
+            else
+            {
+                this.m_controlPointCount = 1;
+            }
+            if (info.m_class.m_service > ItemClass.Service.Office)
+            {
+                int num5 = info.m_class.m_service - ItemClass.Service.Office - 1;
+                Singleton<GuideManager>.instance.m_serviceNotUsed[num5].Disable();
+                Singleton<GuideManager>.instance.m_serviceNeeded[num5].Deactivate();
+            }
+            if (info.m_class.m_service == ItemClass.Service.Road)
+            {
+                Singleton<CoverageManager>.instance.CoverageUpdated(ItemClass.Service.None, ItemClass.SubService.None, ItemClass.Level.None);
+                Singleton<NetManager>.instance.m_roadsNotUsed.Disable();
+            }
+            if ((info.m_class.m_service == ItemClass.Service.Road || info.m_class.m_service == ItemClass.Service.PublicTransport || info.m_class.m_service == ItemClass.Service.Beautification) && (info.m_hasForwardVehicleLanes || info.m_hasBackwardVehicleLanes) && (!info.m_hasForwardVehicleLanes || !info.m_hasBackwardVehicleLanes))
+            {
+                Singleton<NetManager>.instance.m_onewayRoadPlacement.Disable();
+            }
+            if (this.m_upgrading)
+            {
+                info.m_netAI.UpgradeSucceeded();
+            }
+            else if (flag && num != 0)
+            {
+                info.m_netAI.ConnectionSucceeded(num, ref Singleton<NetManager>.instance.m_nodes.m_buffer[(int)num]);
+            }
+            Singleton<GuideManager>.instance.m_notEnoughMoney.Deactivate();
+            if (Singleton<GuideManager>.instance.m_properties != null && !this.m_upgrading && num2 != 0 && this.m_bulldozerTool != null && this.m_bulldozerTool.m_lastNetInfo != null && this.m_bulldozerTool.m_lastNetInfo.m_netAI.CanUpgradeTo(info))
+            {
+                ushort startNode = instance.m_segments.m_buffer[(int)num2].m_startNode;
+                ushort endNode = instance.m_segments.m_buffer[(int)num2].m_endNode;
+                Vector3 position = instance.m_nodes.m_buffer[(int)startNode].m_position;
+                Vector3 position2 = instance.m_nodes.m_buffer[(int)endNode].m_position;
+                Vector3 startDirection = instance.m_segments.m_buffer[(int)num2].m_startDirection;
+                Vector3 endDirection = instance.m_segments.m_buffer[(int)num2].m_endDirection;
+                if (Vector3.SqrMagnitude(this.m_bulldozerTool.m_lastStartPos - position) < 1f && Vector3.SqrMagnitude(this.m_bulldozerTool.m_lastEndPos - position2) < 1f && Vector2.Dot(VectorUtils.XZ(this.m_bulldozerTool.m_lastStartDir), VectorUtils.XZ(startDirection)) > 0.99f && Vector2.Dot(VectorUtils.XZ(this.m_bulldozerTool.m_lastEndDir), VectorUtils.XZ(endDirection)) > 0.99f)
+                {
+                    Singleton<NetManager>.instance.m_manualUpgrade.Activate(Singleton<GuideManager>.instance.m_properties.m_manualUpgrade, info.m_class.m_service);
+                }
+            }
+            return true;
         }
         return false;
     }
@@ -1649,6 +1804,12 @@ public class NetToolFine : ToolBase
         }
     }
 
+    /// <summary>
+    /// Returns the elevation in real-world units of the current tool selection,
+    /// clamping to the min and max values given by the road prefab.
+    /// </summary>
+    /// <param name="info">Road prefab to use for limits.</param>
+    /// <returns>Height above the ground in meters.</returns>
     private float GetElevation(NetInfo info)
     {
         int min_height;
@@ -1706,155 +1867,187 @@ public class NetToolFine : ToolBase
         return Vector3.Lerp(refPos1, refPos2, t);
     }
 
-    public static bool MakeControlPoint(Ray ray, float rayLength, NetInfo info, bool ignoreTerrain, NetNode.Flags ignoreNodeFlags, NetSegment.Flags ignoreSegmentFlags, Building.Flags ignoreBuildingFlags, float elevation, out NetTool.ControlPoint p)
+    public static bool MakeControlPoint(Ray ray, float rayLength, NetInfo info, bool ignoreTerrain, NetNode.Flags ignoreNodeFlags, NetSegment.Flags ignoreSegmentFlags, Building.Flags ignoreBuildingFlags, float elevation, bool tunnels, out NetTool.ControlPoint p)
     {
-        ToolBase.RaycastOutput output;
-        p = new NetTool.ControlPoint();
+        p = default(NetTool.ControlPoint);
         p.m_elevation = elevation;
         ItemClass connectionClass = info.GetConnectionClass();
-        ToolBase.RaycastInput input = new ToolBase.RaycastInput(ray, rayLength) {
-            m_netService = new ToolBase.RaycastService(connectionClass.m_service, connectionClass.m_subService, connectionClass.m_layer),
-            m_buildingService = new ToolBase.RaycastService(connectionClass.m_service, connectionClass.m_subService, ItemClass.Layer.None)
-        };
-        if (info.m_intersectClass != null)
-        {
-            input.m_netService2 = new ToolBase.RaycastService(info.m_intersectClass.m_service, info.m_intersectClass.m_subService, info.m_intersectClass.m_layer);
-        }
+        ToolBase.RaycastInput input = new ToolBase.RaycastInput(ray, rayLength);
+        ToolBase.RaycastOutput raycastOutput = default(ToolBase.RaycastOutput);
         input.m_netSnap = elevation;
-        input.m_ignoreTerrain = ignoreTerrain;
         input.m_ignoreNodeFlags = ignoreNodeFlags;
         input.m_ignoreSegmentFlags = ignoreSegmentFlags;
         input.m_ignoreBuildingFlags = ignoreBuildingFlags;
-        if (!ToolBase.RayCast(input, out output))
+        bool flag;
+        if (tunnels && (info.m_netAI.SupportUnderground() || info.m_netAI.IsUnderground()))
         {
-            return false;
-        }
-        if (output.m_building != 0)
-        {
-            output.m_netNode = Singleton<BuildingManager>.instance.m_buildings.m_buffer[output.m_building].FindNode(connectionClass.m_service, connectionClass.m_subService, connectionClass.m_layer);
-            output.m_building = 0;
-        }
-        p.m_position = output.m_hitPos;
-        p.m_node = output.m_netNode;
-        p.m_segment = output.m_netSegment;
-        Vector3 position = p.m_position;
-        if (p.m_node != 0)
-        {
-            NetNode node = Singleton<NetManager>.instance.m_nodes.m_buffer[p.m_node];
-            p.m_position = node.m_position;
-            p.m_direction = Vector3.zero;
-            p.m_segment = 0;
-            p.m_elevation = node.m_elevation;
-        }
-        else if (p.m_segment != 0)
-        {
-            NetSegment segment = Singleton<NetManager>.instance.m_segments.m_buffer[p.m_segment];
-            NetNode node2 = Singleton<NetManager>.instance.m_nodes.m_buffer[segment.m_startNode];
-            NetNode node3 = Singleton<NetManager>.instance.m_nodes.m_buffer[segment.m_endNode];
-            if (!NetSegment.IsStraight(node2.m_position, segment.m_startDirection, node3.m_position, segment.m_endDirection))
+            input.m_netService = new ToolBase.RaycastService(connectionClass.m_service, connectionClass.m_subService, ItemClass.Layer.MetroTunnels);
+            input.m_buildingService = new ToolBase.RaycastService(connectionClass.m_service, connectionClass.m_subService, ItemClass.Layer.MetroTunnels);
+            if (info.m_intersectClass != null)
             {
-                Vector3 vector2;
-                Vector3 vector3;
-                segment.GetClosestPositionAndDirection(p.m_position, out vector2, out vector3);
-                Vector3 vector4 = vector2 - node2.m_position;
-                if (vector4.sqrMagnitude < 64f)
+                input.m_netService2 = new ToolBase.RaycastService(info.m_intersectClass.m_service, info.m_intersectClass.m_subService, ItemClass.Layer.MetroTunnels);
+            }
+            input.m_ignoreTerrain = true;
+            flag = ToolBase.RayCast(input, out raycastOutput);
+        }
+        else
+        {
+            input.m_ignoreNodeFlags |= NetNode.Flags.Underground;
+            flag = false;
+        }
+        if (!flag)
+        {
+            input.m_netService = new ToolBase.RaycastService(connectionClass.m_service, connectionClass.m_subService, connectionClass.m_layer);
+            input.m_buildingService = new ToolBase.RaycastService(connectionClass.m_service, connectionClass.m_subService, ItemClass.Layer.None);
+            if (info.m_intersectClass != null)
+            {
+                input.m_netService2 = new ToolBase.RaycastService(info.m_intersectClass.m_service, info.m_intersectClass.m_subService, info.m_intersectClass.m_layer);
+            }
+            input.m_ignoreTerrain = ignoreTerrain;
+            flag = ToolBase.RayCast(input, out raycastOutput);
+        }
+        if (flag)
+        {
+            if (raycastOutput.m_building != 0)
+            {
+                raycastOutput.m_netNode = Singleton<BuildingManager>.instance.m_buildings.m_buffer[(int)raycastOutput.m_building].FindNode(connectionClass.m_service, connectionClass.m_subService, connectionClass.m_layer);
+                raycastOutput.m_building = 0;
+            }
+            p.m_position = raycastOutput.m_hitPos;
+            p.m_node = raycastOutput.m_netNode;
+            p.m_segment = raycastOutput.m_netSegment;
+            Vector3 position = p.m_position;
+            if (p.m_node != 0)
+            {
+                NetNode netNode = Singleton<NetManager>.instance.m_nodes.m_buffer[(int)p.m_node];
+                p.m_position = netNode.m_position;
+                p.m_direction = Vector3.zero;
+                p.m_segment = 0;
+                if (netNode.Info.m_netAI.IsUnderground())
                 {
-                    p.m_position = node2.m_position;
-                    p.m_direction = segment.m_startDirection;
-                    p.m_node = segment.m_startNode;
-                    p.m_segment = 0;
+                    p.m_elevation = (float)(-(float)netNode.m_elevation);
                 }
                 else
                 {
-                    Vector3 vector5 = vector2 - node3.m_position;
-                    if (vector5.sqrMagnitude < 64f)
+                    p.m_elevation = (float)netNode.m_elevation;
+                }
+            }
+            else if (p.m_segment != 0)
+            {
+                NetSegment netSegment = Singleton<NetManager>.instance.m_segments.m_buffer[(int)p.m_segment];
+                NetNode netNode2 = Singleton<NetManager>.instance.m_nodes.m_buffer[(int)netSegment.m_startNode];
+                NetNode netNode3 = Singleton<NetManager>.instance.m_nodes.m_buffer[(int)netSegment.m_endNode];
+                bool flag2 = !NetSegment.IsStraight(netNode2.m_position, netSegment.m_startDirection, netNode3.m_position, netSegment.m_endDirection);
+                if (flag2)
+                {
+                    Vector3 vector;
+                    Vector3 direction;
+                    netSegment.GetClosestPositionAndDirection(p.m_position, out vector, out direction);
+                    if ((vector - netNode2.m_position).sqrMagnitude < 64f)
                     {
-                        p.m_position = node3.m_position;
-                        p.m_direction = segment.m_endDirection;
-                        p.m_node = segment.m_endNode;
+                        p.m_position = netNode2.m_position;
+                        p.m_direction = netSegment.m_startDirection;
+                        p.m_node = netSegment.m_startNode;
+                        p.m_segment = 0;
+                    }
+                    else if ((vector - netNode3.m_position).sqrMagnitude < 64f)
+                    {
+                        p.m_position = netNode3.m_position;
+                        p.m_direction = netSegment.m_endDirection;
+                        p.m_node = netSegment.m_endNode;
                         p.m_segment = 0;
                     }
                     else
                     {
-                        p.m_position = vector2;
-                        p.m_direction = vector3;
+                        p.m_position = vector;
+                        p.m_direction = direction;
                     }
                 }
+                else
+                {
+                    p.m_position = netSegment.GetClosestPosition(p.m_position);
+                    p.m_direction = netSegment.m_startDirection;
+                    float num = (p.m_position.x - netNode2.m_position.x) * (netNode3.m_position.x - netNode2.m_position.x) + (p.m_position.z - netNode2.m_position.z) * (netNode3.m_position.z - netNode2.m_position.z);
+                    float num2 = (netNode3.m_position.x - netNode2.m_position.x) * (netNode3.m_position.x - netNode2.m_position.x) + (netNode3.m_position.z - netNode2.m_position.z) * (netNode3.m_position.z - netNode2.m_position.z);
+                    if (num2 != 0f)
+                    {
+                        p.m_position = LerpPosition(netNode2.m_position, netNode3.m_position, num / num2, info.m_netAI.GetLengthSnap());
+                    }
+                }
+                float num3 = (float)netNode2.m_elevation;
+                float num4 = (float)netNode3.m_elevation;
+                if (netNode2.Info.m_netAI.IsUnderground())
+                {
+                    num3 = -num3;
+                }
+                if (netNode3.Info.m_netAI.IsUnderground())
+                {
+                    num4 = -num4;
+                }
+                p.m_elevation = Mathf.Lerp(num3, num4, 0.5f);
             }
             else
             {
-                p.m_position = segment.GetClosestPosition(p.m_position);
-                p.m_direction = segment.m_startDirection;
-                float num = ((p.m_position.x - node2.m_position.x) * (node3.m_position.x - node2.m_position.x)) + ((p.m_position.z - node2.m_position.z) * (node3.m_position.z - node2.m_position.z));
-                float num2 = ((node3.m_position.x - node2.m_position.x) * (node3.m_position.x - node2.m_position.x)) + ((node3.m_position.z - node2.m_position.z) * (node3.m_position.z - node2.m_position.z));
-                if (num2 != 0f)
+                float num5 = 8640f;
+                if (Mathf.Abs(p.m_position.x) >= Mathf.Abs(p.m_position.z))
                 {
-                    p.m_position = LerpPosition(node2.m_position, node3.m_position, num / num2, info.m_netAI.GetLengthSnap());
+                    if (p.m_position.x > num5 - info.m_halfWidth * 3f)
+                    {
+                        p.m_position.x = num5 + info.m_halfWidth * 0.8f;
+                        p.m_position.z = Mathf.Clamp(p.m_position.z, info.m_halfWidth - num5, num5 - info.m_halfWidth);
+                        p.m_outside = true;
+                    }
+                    if (p.m_position.x < info.m_halfWidth * 3f - num5)
+                    {
+                        p.m_position.x = -num5 - info.m_halfWidth * 0.8f;
+                        p.m_position.z = Mathf.Clamp(p.m_position.z, info.m_halfWidth - num5, num5 - info.m_halfWidth);
+                        p.m_outside = true;
+                    }
                 }
+                else
+                {
+                    if (p.m_position.z > num5 - info.m_halfWidth * 3f)
+                    {
+                        p.m_position.z = num5 + info.m_halfWidth * 0.8f;
+                        p.m_position.x = Mathf.Clamp(p.m_position.x, info.m_halfWidth - num5, num5 - info.m_halfWidth);
+                        p.m_outside = true;
+                    }
+                    if (p.m_position.z < info.m_halfWidth * 3f - num5)
+                    {
+                        p.m_position.z = -num5 - info.m_halfWidth * 0.8f;
+                        p.m_position.x = Mathf.Clamp(p.m_position.x, info.m_halfWidth - num5, num5 - info.m_halfWidth);
+                        p.m_outside = true;
+                    }
+                }
+                p.m_position.y = NetSegment.SampleTerrainHeight(info, p.m_position, false, elevation);
             }
-            p.m_elevation = Mathf.Lerp((float) node2.m_elevation, (float) node3.m_elevation, 0.5f);
-        }
-        else
-        {
-            float num3 = 8640f;
-            float introduced18 = Mathf.Abs(p.m_position.x);
-            if (introduced18 >= Mathf.Abs(p.m_position.z))
+            if (p.m_node != 0)
             {
-                if (p.m_position.x > (num3 - (info.m_halfWidth * 3f)))
+                NetNode netNode4 = Singleton<NetManager>.instance.m_nodes.m_buffer[(int)p.m_node];
+                if ((netNode4.m_flags & ignoreNodeFlags) != NetNode.Flags.None)
                 {
-                    p.m_position.x = num3 + (info.m_halfWidth * 0.8f);
-                    p.m_position.z = Mathf.Clamp(p.m_position.z, info.m_halfWidth - num3, num3 - info.m_halfWidth);
-                    p.m_outside = true;
-                }
-                if (p.m_position.x < ((info.m_halfWidth * 3f) - num3))
-                {
-                    p.m_position.x = -num3 - (info.m_halfWidth * 0.8f);
-                    p.m_position.z = Mathf.Clamp(p.m_position.z, info.m_halfWidth - num3, num3 - info.m_halfWidth);
-                    p.m_outside = true;
+                    p.m_position = position;
+                    p.m_position.y = NetSegment.SampleTerrainHeight(info, p.m_position, false, elevation);
+                    p.m_node = 0;
+                    p.m_segment = 0;
+                    p.m_elevation = elevation;
                 }
             }
-            else
+            else if (p.m_segment != 0)
             {
-                if (p.m_position.z > (num3 - (info.m_halfWidth * 3f)))
+                NetSegment netSegment2 = Singleton<NetManager>.instance.m_segments.m_buffer[(int)p.m_segment];
+                if ((netSegment2.m_flags & ignoreSegmentFlags) != NetSegment.Flags.None)
                 {
-                    p.m_position.z = num3 + (info.m_halfWidth * 0.8f);
-                    p.m_position.x = Mathf.Clamp(p.m_position.x, info.m_halfWidth - num3, num3 - info.m_halfWidth);
-                    p.m_outside = true;
-                }
-                if (p.m_position.z < ((info.m_halfWidth * 3f) - num3))
-                {
-                    p.m_position.z = -num3 - (info.m_halfWidth * 0.8f);
-                    p.m_position.x = Mathf.Clamp(p.m_position.x, info.m_halfWidth - num3, num3 - info.m_halfWidth);
-                    p.m_outside = true;
+                    p.m_position = position;
+                    p.m_position.y = NetSegment.SampleTerrainHeight(info, p.m_position, false, elevation);
+                    p.m_node = 0;
+                    p.m_segment = 0;
+                    p.m_elevation = elevation;
                 }
             }
-            p.m_position.y = NetSegment.SampleTerrainHeight(info, p.m_position, false) + elevation;
+            return true;
         }
-        if (p.m_node != 0)
-        {
-            NetNode node4 = Singleton<NetManager>.instance.m_nodes.m_buffer[p.m_node];
-            if ((node4.m_flags & ignoreNodeFlags) != NetNode.Flags.None)
-            {
-                p.m_position = position;
-                p.m_position.y = NetSegment.SampleTerrainHeight(info, p.m_position, false) + elevation;
-                p.m_node = 0;
-                p.m_segment = 0;
-                p.m_elevation = elevation;
-            }
-        }
-        else if (p.m_segment != 0)
-        {
-            NetSegment segment2 = Singleton<NetManager>.instance.m_segments.m_buffer[p.m_segment];
-            if ((segment2.m_flags & ignoreSegmentFlags) != NetSegment.Flags.None)
-            {
-                p.m_position = position;
-                p.m_position.y = NetSegment.SampleTerrainHeight(info, p.m_position, false) + elevation;
-                p.m_node = 0;
-                p.m_segment = 0;
-                p.m_elevation = elevation;
-            }
-        }
-        return true;
+        return false;
     }
 
     private static void MoveEndNode(ref ushort node, ref Vector3 direction, Vector3 position)
@@ -1869,6 +2062,53 @@ public class NetToolFine : ToolBase
             Singleton<NetManager>.instance.ReleaseNode(node);
             node = 0;
         }
+    }
+    
+    //New in 1.1.0
+    private static bool GetSecondaryControlPoints(NetInfo info, ref NetTool.ControlPoint startPoint, ref NetTool.ControlPoint middlePoint, ref NetTool.ControlPoint endPoint)
+    {
+        ushort num = middlePoint.m_segment;
+        if (startPoint.m_segment == num || endPoint.m_segment == num)
+        {
+            num = 0;
+        }
+        ushort num2 = 0;
+        if (num != 0)
+        {
+            num2 = DefaultTool.FindSecondarySegment(num);
+        }
+        if (num2 != 0)
+        {
+            NetManager instance = Singleton<NetManager>.instance;
+            startPoint.m_node = instance.m_segments.m_buffer[(int)num2].m_startNode;
+            startPoint.m_segment = 0;
+            startPoint.m_position = instance.m_nodes.m_buffer[(int)startPoint.m_node].m_position;
+            startPoint.m_direction = instance.m_segments.m_buffer[(int)num2].m_startDirection;
+            startPoint.m_elevation = (float)instance.m_nodes.m_buffer[(int)startPoint.m_node].m_elevation;
+            if (instance.m_nodes.m_buffer[(int)startPoint.m_node].Info.m_netAI.IsUnderground())
+            {
+                startPoint.m_elevation = -startPoint.m_elevation;
+            }
+            startPoint.m_outside = ((instance.m_nodes.m_buffer[(int)startPoint.m_node].m_flags & NetNode.Flags.Outside) != NetNode.Flags.None);
+            endPoint.m_node = instance.m_segments.m_buffer[(int)num2].m_endNode;
+            endPoint.m_segment = 0;
+            endPoint.m_position = instance.m_nodes.m_buffer[(int)endPoint.m_node].m_position;
+            endPoint.m_direction = -instance.m_segments.m_buffer[(int)num2].m_endDirection;
+            endPoint.m_elevation = (float)instance.m_nodes.m_buffer[(int)endPoint.m_node].m_elevation;
+            if (instance.m_nodes.m_buffer[(int)endPoint.m_node].Info.m_netAI.IsUnderground())
+            {
+                endPoint.m_elevation = -endPoint.m_elevation;
+            }
+            endPoint.m_outside = ((instance.m_nodes.m_buffer[(int)endPoint.m_node].m_flags & NetNode.Flags.Outside) != NetNode.Flags.None);
+            middlePoint.m_node = 0;
+            middlePoint.m_segment = num2;
+            middlePoint.m_position = startPoint.m_position + startPoint.m_direction * (info.GetMinNodeDistance() + 1f);
+            middlePoint.m_direction = startPoint.m_direction;
+            middlePoint.m_elevation = Mathf.Lerp(startPoint.m_elevation, endPoint.m_elevation, 0.5f);
+            middlePoint.m_outside = false;
+            return true;
+        }
+        return false;
     }
 
     private static void MoveMiddleNode(ref ushort node, ref Vector3 direction, Vector3 position)
@@ -1973,6 +2213,7 @@ public class NetToolFine : ToolBase
         this.m_mouseRayValid = false;
     }
 
+    //Unmodified
     protected override void OnEnable()
     {
         base.OnEnable();
@@ -2000,6 +2241,7 @@ public class NetToolFine : ToolBase
         base.m_toolController.ClearColliding();
     }
 
+    //Unmodified
     protected override void OnToolGUI()
     {
         bool isInsideUI = base.m_toolController.IsInsideUI;
@@ -2049,24 +2291,26 @@ public class NetToolFine : ToolBase
         }
     }
 
+    //Unmodified
     protected override void OnToolLateUpdate()
     {
         NetInfo prefab = this.m_prefab;
-        if (prefab != null)
+        if (prefab == null)
         {
-            InfoManager.InfoMode mode;
-            InfoManager.SubInfoMode mode2;
-            Vector3 mousePosition = Input.mousePosition;
-            this.m_mouseRay = Camera.main.ScreenPointToRay(mousePosition);
-            this.m_mouseRayLength = Camera.main.farClipPlane;
-            this.m_mouseRayValid = !base.m_toolController.IsInsideUI && Cursor.visible;
-            if (this.m_lengthTimer > 0f)
-            {
-                this.m_lengthTimer = Mathf.Max((float) 0f, (float) (this.m_lengthTimer - Time.deltaTime));
-            }
-            prefab.m_netAI.GetPlacementInfoMode(out mode, out mode2);
-            base.ForceInfoMode(mode, mode2);
+            return;
         }
+        Vector3 mousePosition = Input.mousePosition;
+        this.m_mouseRay = Camera.main.ScreenPointToRay(mousePosition);
+        this.m_mouseRayLength = Camera.main.farClipPlane;
+        this.m_mouseRayValid = (!this.m_toolController.IsInsideUI && Cursor.visible);
+        if (this.m_lengthTimer > 0f)
+        {
+            this.m_lengthTimer = Mathf.Max(0f, this.m_lengthTimer - Time.deltaTime);
+        }
+        InfoManager.InfoMode mode;
+        InfoManager.SubInfoMode subMode;
+        prefab.m_netAI.GetPlacementInfoMode(out mode, out subMode, this.GetElevation(prefab));
+        base.ForceInfoMode(mode, subMode);
     }
 
     protected override void OnToolUpdate()
@@ -2577,336 +2821,359 @@ public class NetToolFine : ToolBase
     public override void SimulationStep()
     {
         NetInfo prefab = this.m_prefab;
-        if (prefab != null)
+        if (prefab == null)
         {
-            ToolBase.ToolErrors errors;
-            int num15;
-            int num16;
-            if (this.m_mode == NetTool.Mode.Straight)
+            return;
+        }
+        if (this.m_mode == NetTool.Mode.Straight)
+        {
+            if (prefab.m_class.m_service == ItemClass.Service.Road || prefab.m_class.m_service == ItemClass.Service.PublicTransport || prefab.m_class.m_service == ItemClass.Service.Beautification)
             {
-                if (((prefab.m_class.m_service == ItemClass.Service.Road) || (prefab.m_class.m_service == ItemClass.Service.PublicTransport)) || (prefab.m_class.m_service == ItemClass.Service.Beautification))
+                GuideController properties = Singleton<GuideManager>.instance.m_properties;
+                if (properties != null)
                 {
-                    GuideController properties = Singleton<GuideManager>.instance.m_properties;
-                    if (properties != null)
-                    {
-                        Singleton<NetManager>.instance.m_optionsNotUsed.Activate(properties.m_roadOptionsNotUsed, prefab.m_class.m_service);
-                    }
+                    Singleton<NetManager>.instance.m_optionsNotUsed.Activate(properties.m_roadOptionsNotUsed, prefab.m_class.m_service);
                 }
             }
-            else
+        }
+        else
+        {
+            ServiceTypeGuide optionsNotUsed = Singleton<NetManager>.instance.m_optionsNotUsed;
+            if (optionsNotUsed != null && !optionsNotUsed.m_disabled)
             {
-                ServiceTypeGuide optionsNotUsed = Singleton<NetManager>.instance.m_optionsNotUsed;
-                if ((optionsNotUsed != null) && !optionsNotUsed.m_disabled)
+                optionsNotUsed.Disable();
+            }
+        }
+        if (this.m_elevation == 0)
+        {
+            int num;
+            int num2;
+            prefab.m_netAI.GetElevationLimits(out num, out num2);
+            if (num2 > num)
+            {
+                GuideController properties2 = Singleton<GuideManager>.instance.m_properties;
+                if (properties2 != null)
                 {
-                    optionsNotUsed.Disable();
+                    Singleton<NetManager>.instance.m_elevationNotUsed.Activate(properties2.m_elevationNotUsed, prefab.m_class.m_service);
                 }
             }
-            if (this.m_elevation == 0)
+        }
+        else
+        {
+            ServiceTypeGuide elevationNotUsed = Singleton<NetManager>.instance.m_elevationNotUsed;
+            if (elevationNotUsed != null && !elevationNotUsed.m_disabled)
             {
-                int num;
-                int num2;
-                GetAdjustedElevationLimits(prefab.m_netAI, out num, out num2);
-                if (num2 > num)
+                elevationNotUsed.Disable();
+            }
+        }
+        if ((prefab.m_hasForwardVehicleLanes || prefab.m_hasBackwardVehicleLanes) && (!prefab.m_hasForwardVehicleLanes || !prefab.m_hasBackwardVehicleLanes) && (prefab.m_class.m_service == ItemClass.Service.Road || prefab.m_class.m_service == ItemClass.Service.PublicTransport || prefab.m_class.m_service == ItemClass.Service.Beautification) && this.m_controlPointCount >= 1)
+        {
+            GuideController properties3 = Singleton<GuideManager>.instance.m_properties;
+            if (properties3 != null)
+            {
+                Singleton<NetManager>.instance.m_onewayRoadPlacement.Activate(properties3.m_onewayRoadPlacement);
+            }
+        }
+        if (this.m_mode == NetTool.Mode.Upgrade)
+        {
+            ServiceTypeGuide manualUpgrade = Singleton<NetManager>.instance.m_manualUpgrade;
+            manualUpgrade.Deactivate();
+        }
+        Vector3 position = this.m_controlPoints[this.m_controlPointCount].m_position;
+        bool flag = false;
+        if (this.m_mode == NetTool.Mode.Upgrade)
+        {
+            NetManager instance = Singleton<NetManager>.instance;
+            ToolBase.RaycastInput input = new ToolBase.RaycastInput(this.m_mouseRay, this.m_mouseRayLength);
+            input.m_netService = new ToolBase.RaycastService(prefab.m_class.m_service, prefab.m_class.m_subService, prefab.m_class.m_layer);
+            input.m_ignoreTerrain = true;
+            input.m_ignoreNodeFlags = NetNode.Flags.All;
+            input.m_ignoreSegmentFlags = NetSegment.Flags.Untouchable;
+            if (Singleton<InfoManager>.instance.CurrentMode == InfoManager.InfoMode.Transport || Singleton<InfoManager>.instance.CurrentMode == InfoManager.InfoMode.Traffic)
+            {
+                input.m_netService.m_itemLayers = (input.m_netService.m_itemLayers | ItemClass.Layer.MetroTunnels);
+            }
+            ToolBase.RaycastOutput raycastOutput;
+            if (this.m_mouseRayValid && ToolBase.RayCast(input, out raycastOutput))
+            {
+                if (raycastOutput.m_netSegment != 0)
                 {
-                    GuideController controller2 = Singleton<GuideManager>.instance.m_properties;
-                    if (controller2 != null)
+                    NetInfo info = instance.m_segments.m_buffer[(int)raycastOutput.m_netSegment].Info;
+                    if (info.m_class.m_service != prefab.m_class.m_service || info.m_class.m_subService != prefab.m_class.m_subService)
                     {
-                        Singleton<NetManager>.instance.m_elevationNotUsed.Activate(controller2.m_elevationNotUsed, prefab.m_class.m_service);
+                        raycastOutput.m_netSegment = 0;
+                    }
+                    else if (this.m_upgradedSegments.Contains(raycastOutput.m_netSegment))
+                    {
+                        raycastOutput.m_netSegment = 0;
                     }
                 }
-            }
-            else
-            {
-                ServiceTypeGuide elevationNotUsed = Singleton<NetManager>.instance.m_elevationNotUsed;
-                if ((elevationNotUsed != null) && !elevationNotUsed.m_disabled)
+                if (raycastOutput.m_netSegment != 0)
                 {
-                    elevationNotUsed.Disable();
-                }
-            }
-            if (((prefab.m_hasForwardVehicleLanes || prefab.m_hasBackwardVehicleLanes) && (!prefab.m_hasForwardVehicleLanes || !prefab.m_hasBackwardVehicleLanes)) && ((((prefab.m_class.m_service == ItemClass.Service.Road) || (prefab.m_class.m_service == ItemClass.Service.PublicTransport)) || (prefab.m_class.m_service == ItemClass.Service.Beautification)) && (this.m_controlPointCount >= 1)))
-            {
-                GuideController controller3 = Singleton<GuideManager>.instance.m_properties;
-                if (controller3 != null)
-                {
-                    Singleton<NetManager>.instance.m_onewayRoadPlacement.Activate(controller3.m_onewayRoadPlacement);
-                }
-            }
-            if (this.m_mode == NetTool.Mode.Upgrade)
-            {
-                Singleton<NetManager>.instance.m_manualUpgrade.Deactivate();
-            }
-            Vector3 position = this.m_controlPoints[this.m_controlPointCount].m_position;
-            bool flag = false;
-            if (this.m_mode == NetTool.Mode.Upgrade)
-            {
-                ToolBase.RaycastOutput output;
-                NetManager instance = Singleton<NetManager>.instance;
-                ToolBase.RaycastInput input = new ToolBase.RaycastInput(this.m_mouseRay, this.m_mouseRayLength) {
-                    m_netService = new ToolBase.RaycastService(prefab.m_class.m_service, prefab.m_class.m_subService, prefab.m_class.m_layer),
-                    m_ignoreTerrain = true,
-                    m_ignoreNodeFlags = ~NetNode.Flags.None,
-                    m_ignoreSegmentFlags = NetSegment.Flags.Untouchable
-                };
-                if (this.m_mouseRayValid && ToolBase.RayCast(input, out output))
-                {
-                    if (output.m_netSegment != 0)
+                    NetTool.ControlPoint controlPoint;
+                    controlPoint.m_node = instance.m_segments.m_buffer[(int)raycastOutput.m_netSegment].m_startNode;
+                    controlPoint.m_segment = 0;
+                    controlPoint.m_position = instance.m_nodes.m_buffer[(int)controlPoint.m_node].m_position;
+                    controlPoint.m_direction = instance.m_segments.m_buffer[(int)raycastOutput.m_netSegment].m_startDirection;
+                    controlPoint.m_elevation = (float)instance.m_nodes.m_buffer[(int)controlPoint.m_node].m_elevation;
+                    if (instance.m_nodes.m_buffer[(int)controlPoint.m_node].Info.m_netAI.IsUnderground())
                     {
-                        NetInfo info = instance.m_segments.m_buffer[output.m_netSegment].Info;
-                        if ((info.m_class.m_service != prefab.m_class.m_service) || (info.m_class.m_subService != prefab.m_class.m_subService))
-                        {
-                            output.m_netSegment = 0;
-                        }
-                        else if (this.m_upgradedSegments.Contains(output.m_netSegment))
-                        {
-                            output.m_netSegment = 0;
-                        }
+                        controlPoint.m_elevation = -controlPoint.m_elevation;
                     }
-                    if (output.m_netSegment != 0)
+                    controlPoint.m_outside = ((instance.m_nodes.m_buffer[(int)controlPoint.m_node].m_flags & NetNode.Flags.Outside) != NetNode.Flags.None);
+                    NetTool.ControlPoint controlPoint2;
+                    controlPoint2.m_node = instance.m_segments.m_buffer[(int)raycastOutput.m_netSegment].m_endNode;
+                    controlPoint2.m_segment = 0;
+                    controlPoint2.m_position = instance.m_nodes.m_buffer[(int)controlPoint2.m_node].m_position;
+                    controlPoint2.m_direction = -instance.m_segments.m_buffer[(int)raycastOutput.m_netSegment].m_endDirection;
+                    controlPoint2.m_elevation = (float)instance.m_nodes.m_buffer[(int)controlPoint2.m_node].m_elevation;
+                    if (instance.m_nodes.m_buffer[(int)controlPoint2.m_node].Info.m_netAI.IsUnderground())
                     {
-                        NetTool.ControlPoint point;
-                        NetTool.ControlPoint point2;
-                        NetTool.ControlPoint point3;
-                        point.m_node = instance.m_segments.m_buffer[output.m_netSegment].m_startNode;
-                        point.m_segment = 0;
-                        point.m_position = instance.m_nodes.m_buffer[point.m_node].m_position;
-                        point.m_direction = instance.m_segments.m_buffer[output.m_netSegment].m_startDirection;
-                        point.m_elevation = instance.m_nodes.m_buffer[point.m_node].m_elevation;
-                        point.m_outside = (instance.m_nodes.m_buffer[point.m_node].m_flags & NetNode.Flags.Outside) != NetNode.Flags.None;
-                        point3.m_node = instance.m_segments.m_buffer[output.m_netSegment].m_endNode;
-                        point3.m_segment = 0;
-                        point3.m_position = instance.m_nodes.m_buffer[point3.m_node].m_position;
-                        point3.m_direction = -instance.m_segments.m_buffer[output.m_netSegment].m_endDirection;
-                        point3.m_elevation = instance.m_nodes.m_buffer[point3.m_node].m_elevation;
-                        point3.m_outside = (instance.m_nodes.m_buffer[point3.m_node].m_flags & NetNode.Flags.Outside) != NetNode.Flags.None;
-                        point2.m_node = 0;
-                        point2.m_segment = output.m_netSegment;
-                        point2.m_position = point.m_position + ((Vector3) (point.m_direction * (prefab.GetMinNodeDistance() + 1f)));
-                        point2.m_direction = point.m_direction;
-                        point2.m_elevation = Mathf.Lerp(point.m_elevation, point3.m_elevation, 0.5f);
-                        point2.m_outside = false;
-                        this.m_controlPoints[0] = point;
-                        this.m_controlPoints[1] = point2;
-                        this.m_controlPoints[2] = point3;
-                        this.m_controlPointCount = 2;
+                        controlPoint2.m_elevation = -controlPoint2.m_elevation;
                     }
-                    else
-                    {
-                        this.m_controlPointCount = 0;
-                        this.m_controlPoints[this.m_controlPointCount] = new NetTool.ControlPoint();
-                    }
+                    controlPoint2.m_outside = ((instance.m_nodes.m_buffer[(int)controlPoint2.m_node].m_flags & NetNode.Flags.Outside) != NetNode.Flags.None);
+                    NetTool.ControlPoint controlPoint3;
+                    controlPoint3.m_node = 0;
+                    controlPoint3.m_segment = raycastOutput.m_netSegment;
+                    controlPoint3.m_position = controlPoint.m_position + controlPoint.m_direction * (prefab.GetMinNodeDistance() + 1f);
+                    controlPoint3.m_direction = controlPoint.m_direction;
+                    controlPoint3.m_elevation = Mathf.Lerp(controlPoint.m_elevation, controlPoint2.m_elevation, 0.5f);
+                    controlPoint3.m_outside = false;
+                    this.m_controlPoints[0] = controlPoint;
+                    this.m_controlPoints[1] = controlPoint3;
+                    this.m_controlPoints[2] = controlPoint2;
+                    this.m_controlPointCount = 2;
                 }
                 else
                 {
                     this.m_controlPointCount = 0;
-                    this.m_controlPoints[this.m_controlPointCount] = new NetTool.ControlPoint();
-                    flag = true;
+                    this.m_controlPoints[this.m_controlPointCount] = default(NetTool.ControlPoint);
                 }
             }
             else
             {
-                NetNode.Flags none;
-                NetSegment.Flags flags2;
-                Building.Flags untouchable;
-                NetTool.ControlPoint p = new NetTool.ControlPoint();
-                float elevation = this.GetElevation(prefab);
-                if (((this.m_mode == NetTool.Mode.Curved) || (this.m_mode == NetTool.Mode.Freeform)) && (this.m_controlPointCount == 1))
+                this.m_controlPointCount = 0;
+                this.m_controlPoints[this.m_controlPointCount] = default(NetTool.ControlPoint);
+                flag = true;
+            }
+        }
+        else
+        {
+            NetTool.ControlPoint controlPoint4 = default(NetTool.ControlPoint);
+            float elevation = this.GetElevation(prefab);
+            NetNode.Flags ignoreNodeFlags;
+            NetSegment.Flags ignoreSegmentFlags;
+            if ((this.m_mode == NetTool.Mode.Curved || this.m_mode == NetTool.Mode.Freeform) && this.m_controlPointCount == 1)
+            {
+                ignoreNodeFlags = NetNode.Flags.All;
+                ignoreSegmentFlags = NetSegment.Flags.All;
+            }
+            else
+            {
+                ignoreNodeFlags = NetNode.Flags.None;
+                ignoreSegmentFlags = NetSegment.Flags.None;
+            }
+            Building.Flags ignoreBuildingFlags;
+            if (prefab.m_snapBuildingNodes)
+            {
+                ignoreBuildingFlags = Building.Flags.Untouchable;
+            }
+            else
+            {
+                ignoreBuildingFlags = Building.Flags.All;
+            }
+            bool tunnels = Singleton<InfoManager>.instance.CurrentMode == InfoManager.InfoMode.Transport || Singleton<InfoManager>.instance.CurrentMode == InfoManager.InfoMode.Traffic;
+            if (this.m_mouseRayValid && MakeControlPoint(this.m_mouseRay, this.m_mouseRayLength, prefab, false, ignoreNodeFlags, ignoreSegmentFlags, ignoreBuildingFlags, elevation, tunnels, out controlPoint4))
+            {
+                bool flag2 = false;
+                if (controlPoint4.m_node == 0 && controlPoint4.m_segment == 0 && !controlPoint4.m_outside)
                 {
-                    none = ~NetNode.Flags.None;
-                    flags2 = ~NetSegment.Flags.None;
-                }
-                else
-                {
-                    none = NetNode.Flags.None;
-                    flags2 = NetSegment.Flags.None;
-                }
-                if (prefab.m_snapBuildingNodes)
-                {
-                    untouchable = Building.Flags.Untouchable;
-                }
-                else
-                {
-                    untouchable = ~Building.Flags.None;
-                }
-                if (this.m_mouseRayValid && MakeControlPoint(this.m_mouseRay, this.m_mouseRayLength, prefab, false, none, flags2, untouchable, elevation, out p))
-                {
-                    bool flag2 = false;
-                    if (((p.m_node == 0) && (p.m_segment == 0)) && !p.m_outside)
+                    if (this.m_snap)
                     {
-                        if (this.m_snap)
+                        if ((Singleton<ToolManager>.instance.m_properties.m_mode & ItemClass.Availability.AssetEditor) != ItemClass.Availability.None)
                         {
-                            if ((Singleton<ToolManager>.instance.m_properties.m_mode & ItemClass.Availability.AssetEditor) != ItemClass.Availability.None)
+                            Vector3 zero = Vector3.zero;
+                            PrefabInfo editPrefabInfo = Singleton<ToolManager>.instance.m_properties.m_editPrefabInfo;
+                            if (editPrefabInfo != null)
                             {
-                                Vector3 zero = Vector3.zero;
-                                PrefabInfo editPrefabInfo = Singleton<ToolManager>.instance.m_properties.m_editPrefabInfo;
-                                if (editPrefabInfo != null)
+                                if ((editPrefabInfo.GetWidth() & 1) != 0)
                                 {
-                                    if ((editPrefabInfo.GetWidth() & 1) != 0)
-                                    {
-                                        zero.x += 4f;
-                                    }
-                                    if ((editPrefabInfo.GetLength() & 1) != 0)
-                                    {
-                                        zero.z += 4f;
-                                    }
+                                    zero.x += 4f;
                                 }
-                                this.Snap(this.m_prefab, ref p.m_position, ref p.m_direction, zero, 0f);
-                                flag2 = true;
-                            }
-                            else
-                            {
-                                Singleton<NetManager>.instance.GetClosestSegments(p.m_position, this.m_closeSegments, out this.m_closeSegmentCount);
-                                p.m_direction = Vector3.zero;
-                                float distanceSq = 256f;
-                                ushort num5 = 0;
-                                for (int i = 0; i < this.m_closeSegmentCount; i++)
+                                if ((editPrefabInfo.GetLength() & 1) != 0)
                                 {
-                                    Singleton<NetManager>.instance.m_segments.m_buffer[this.m_closeSegments[i]].GetClosestZoneBlock(p.m_position, ref distanceSq, ref num5);
-                                }
-                                if (num5 != 0)
-                                {
-                                    ZoneBlock block = Singleton<ZoneManager>.instance.m_blocks.m_buffer[num5];
-                                    this.Snap(this.m_prefab, ref p.m_position, ref p.m_direction, block.m_position, block.m_angle);
-                                    flag2 = true;
+                                    zero.z += 4f;
                                 }
                             }
-                        }
-                        float introduced57 = NetSegment.SampleTerrainHeight(prefab, p.m_position, false);
-                        p.m_position.y = introduced57 + p.m_elevation;
-                    }
-                    else
-                    {
-                        flag2 = true;
-                    }
-                    bool success = false;
-                    if ((this.m_controlPointCount == 2) && (this.m_mode == NetTool.Mode.Freeform))
-                    {
-                        Vector3 a = p.m_position - this.m_controlPoints[0].m_position;
-                        Vector3 direction = this.m_controlPoints[1].m_direction;
-                        a.y = 0f;
-                        direction.y = 0f;
-                        float num7 = Vector3.SqrMagnitude(a);
-                        a = Vector3.Normalize(a);
-                        float num8 = Mathf.Min(1.178097f, Mathf.Acos(Vector3.Dot(a, direction)));
-                        float num9 = Mathf.Sqrt((0.5f * num7) / Mathf.Max((float) 0.001f, (float) (1f - Mathf.Cos(3.141593f - (2f * num8)))));
-                        this.m_controlPoints[1].m_position = this.m_controlPoints[0].m_position + ((Vector3) (direction * num9));
-                        p.m_direction = p.m_position - this.m_controlPoints[1].m_position;
-                        p.m_direction.y = 0f;
-                        p.m_direction.Normalize();
-                    }
-                    else if (this.m_controlPointCount != 0)
-                    {
-                        NetTool.ControlPoint point6;
-                        NetTool.ControlPoint oldPoint = this.m_controlPoints[this.m_controlPointCount - 1];
-                        p.m_direction = p.m_position - oldPoint.m_position;
-                        p.m_direction.y = 0f;
-                        p.m_direction.Normalize();
-                        float minNodeDistance = prefab.GetMinNodeDistance();
-                        minNodeDistance *= minNodeDistance;
-                        float num11 = minNodeDistance;
-                        if (this.m_snap)
-                        {
-                            point6 = SnapDirection(p, oldPoint, prefab, out success, out minNodeDistance);
-                            p = point6;
+                            this.Snap(this.m_prefab, ref controlPoint4.m_position, ref controlPoint4.m_direction, zero, 0f);
+                            flag2 = true;
                         }
                         else
                         {
-                            point6 = p;
-                        }
-                        if ((p.m_segment != 0) && (minNodeDistance < num11))
-                        {
-                            point6.m_position = Singleton<NetManager>.instance.m_segments.m_buffer[p.m_segment].GetClosestPosition(p.m_position, p.m_direction);
-                        }
-                        else if (((p.m_segment == 0) && (p.m_node == 0)) && (!p.m_outside && this.m_snap))
-                        {
-                            float lengthSnap = prefab.m_netAI.GetLengthSnap();
-                            if (((this.m_mode != NetTool.Mode.Freeform) && (success || !flag2)) && (lengthSnap != 0f))
+                            Singleton<NetManager>.instance.GetClosestSegments(controlPoint4.m_position, this.m_closeSegments, out this.m_closeSegmentCount);
+                            controlPoint4.m_direction = Vector3.zero;
+                            float num3 = 256f;
+                            ushort num4 = 0;
+                            for (int i = 0; i < this.m_closeSegmentCount; i++)
                             {
-                                Vector3 vector5 = p.m_position - oldPoint.m_position;
-                                Vector3 vector6 = new Vector3(vector5.x, 0f, vector5.z);
-                                float magnitude = vector6.magnitude;
-                                if (magnitude < 0.001f)
-                                {
-                                    point6.m_position = oldPoint.m_position;
-                                }
-                                else
-                                {
-                                    int num14 = Mathf.Max(1, Mathf.RoundToInt(magnitude / lengthSnap));
-                                    point6.m_position = oldPoint.m_position + ((Vector3) (vector5 * ((num14 * lengthSnap) / magnitude)));
-                                }
+                                Singleton<NetManager>.instance.m_segments.m_buffer[(int)this.m_closeSegments[i]].GetClosestZoneBlock(controlPoint4.m_position, ref num3, ref num4);
+                            }
+                            if (num4 != 0)
+                            {
+                                ZoneBlock zoneBlock = Singleton<ZoneManager>.instance.m_blocks.m_buffer[(int)num4];
+                                this.Snap(this.m_prefab, ref controlPoint4.m_position, ref controlPoint4.m_direction, zoneBlock.m_position, zoneBlock.m_angle);
+                                flag2 = true;
                             }
                         }
-                        p = point6;
                     }
+                    controlPoint4.m_position.y = NetSegment.SampleTerrainHeight(prefab, controlPoint4.m_position, false, controlPoint4.m_elevation);
                 }
                 else
                 {
-                    flag = true;
+                    flag2 = true;
                 }
-                this.m_controlPoints[this.m_controlPointCount] = p;
-            }
-            bool needMoney = (Singleton<ToolManager>.instance.m_properties.m_mode & ItemClass.Availability.Game) != ItemClass.Availability.None;
-            if (this.m_controlPointCount == 2)
-            {
-                ushort num17;
-                ushort num18;
-                if (Vector3.SqrMagnitude(position - this.m_controlPoints[this.m_controlPointCount].m_position) > 1f)
+                bool flag3 = false;
+                if (this.m_controlPointCount == 2 && this.m_mode == NetTool.Mode.Freeform)
                 {
-                    this.m_lengthChanging = true;
+                    Vector3 vector = controlPoint4.m_position - this.m_controlPoints[0].m_position;
+                    Vector3 direction = this.m_controlPoints[1].m_direction;
+                    vector.y = 0f;
+                    direction.y = 0f;
+                    float num5 = Vector3.SqrMagnitude(vector);
+                    vector = Vector3.Normalize(vector);
+                    float num6 = Mathf.Min(1.17809725f, Mathf.Acos(Vector3.Dot(vector, direction)));
+                    float d = Mathf.Sqrt(0.5f * num5 / Mathf.Max(0.001f, 1f - Mathf.Cos(3.14159274f - 2f * num6)));
+                    this.m_controlPoints[1].m_position = this.m_controlPoints[0].m_position + direction * d;
+                    controlPoint4.m_direction = controlPoint4.m_position - this.m_controlPoints[1].m_position;
+                    controlPoint4.m_direction.y = 0f;
+                    controlPoint4.m_direction.Normalize();
                 }
-                errors = CreateNode(prefab, this.m_controlPoints[this.m_controlPointCount - 2], this.m_controlPoints[this.m_controlPointCount - 1], this.m_controlPoints[this.m_controlPointCount], m_nodePositionsSimulation, 0x3e8, true, false, true, needMoney, false, this.m_switchingDir, 0, out num17, out num18, out num15, out num16);
-            }
-            else if (this.m_controlPointCount == 1)
-            {
-                if (Vector3.SqrMagnitude(position - this.m_controlPoints[this.m_controlPointCount].m_position) > 1f)
+                else if (this.m_controlPointCount != 0)
                 {
-                    this.m_lengthChanging = true;
-                }
-                NetTool.ControlPoint middlePoint = this.m_controlPoints[1];
-                if (((this.m_mode != NetTool.Mode.Curved) && (this.m_mode != NetTool.Mode.Freeform)) || ((middlePoint.m_node != 0) || (middlePoint.m_segment != 0)))
-                {
-                    ushort num19;
-                    ushort num20;
-                    middlePoint.m_node = 0;
-                    middlePoint.m_segment = 0;
-                    middlePoint.m_position = (Vector3) ((this.m_controlPoints[0].m_position + this.m_controlPoints[1].m_position) * 0.5f);
-                    errors = CreateNode(prefab, this.m_controlPoints[this.m_controlPointCount - 1], middlePoint, this.m_controlPoints[this.m_controlPointCount], m_nodePositionsSimulation, 0x3e8, true, false, true, needMoney, false, this.m_switchingDir, 0, out num19, out num20, out num15, out num16);
-                }
-                else
-                {
-                    base.m_toolController.ClearColliding();
-                    errors = ToolBase.ToolErrors.None;
-                    num15 = 0;
-                    num16 = 0;
+                    NetTool.ControlPoint oldPoint = this.m_controlPoints[this.m_controlPointCount - 1];
+                    controlPoint4.m_direction = controlPoint4.m_position - oldPoint.m_position;
+                    controlPoint4.m_direction.y = 0f;
+                    controlPoint4.m_direction.Normalize();
+                    float num7 = prefab.GetMinNodeDistance();
+                    num7 *= num7;
+                    float num8 = num7;
+                    NetTool.ControlPoint controlPoint5;
+                    if (this.m_snap)
+                    {
+                        controlPoint5 = SnapDirection(controlPoint4, oldPoint, prefab, out flag3, out num7);
+                        controlPoint4 = controlPoint5;
+                    }
+                    else
+                    {
+                        controlPoint5 = controlPoint4;
+                    }
+                    if (controlPoint4.m_segment != 0 && num7 < num8)
+                    {
+                        NetSegment netSegment = Singleton<NetManager>.instance.m_segments.m_buffer[(int)controlPoint4.m_segment];
+                        controlPoint5.m_position = netSegment.GetClosestPosition(controlPoint4.m_position, controlPoint4.m_direction);
+                    }
+                    else if (controlPoint4.m_segment == 0 && controlPoint4.m_node == 0 && !controlPoint4.m_outside && this.m_snap)
+                    {
+                        float lengthSnap = prefab.m_netAI.GetLengthSnap();
+                        if (this.m_mode != NetTool.Mode.Freeform && (flag3 || !flag2) && lengthSnap != 0f)
+                        {
+                            Vector3 a = controlPoint4.m_position - oldPoint.m_position;
+                            Vector3 vector2 = new Vector3(a.x, 0f, a.z);
+                            float magnitude = vector2.magnitude;
+                            if (magnitude < 0.001f)
+                            {
+                                controlPoint5.m_position = oldPoint.m_position;
+                            }
+                            else
+                            {
+                                int num9 = Mathf.Max(1, Mathf.RoundToInt(magnitude / lengthSnap));
+                                controlPoint5.m_position = oldPoint.m_position + a * ((float)num9 * lengthSnap / magnitude);
+                            }
+                        }
+                    }
+                    controlPoint4 = controlPoint5;
                 }
             }
             else
             {
-                base.m_toolController.ClearColliding();
-                errors = ToolBase.ToolErrors.None;
-                num15 = 0;
-                num16 = 0;
+                flag = true;
             }
-            if (flag)
+            this.m_controlPoints[this.m_controlPointCount] = controlPoint4;
+        }
+        bool flag4 = (Singleton<ToolManager>.instance.m_properties.m_mode & ItemClass.Availability.Game) != ItemClass.Availability.None;
+        int num12;
+        int productionRate;
+        ToolBase.ToolErrors toolErrors;
+        if (this.m_controlPointCount == 2)
+        {
+            if (Vector3.SqrMagnitude(position - this.m_controlPoints[this.m_controlPointCount].m_position) > 1f)
             {
-                errors |= ToolBase.ToolErrors.RaycastFailed;
+                this.m_lengthChanging = true;
             }
-            while (!Monitor.TryEnter(this.m_cacheLock, SimulationManager.SYNCHRONIZE_TIMEOUT))
+            NetTool.ControlPoint startPoint = this.m_controlPoints[this.m_controlPointCount - 2];
+            NetTool.ControlPoint middlePoint = this.m_controlPoints[this.m_controlPointCount - 1];
+            NetTool.ControlPoint endPoint = this.m_controlPoints[this.m_controlPointCount];
+            ushort num10;
+            ushort num11;
+            toolErrors = CreateNode(prefab, startPoint, middlePoint, endPoint, m_nodePositionsSimulation, 1000, true, false, true, flag4, false, this.m_switchingDir, 0, out num10, out num11, out num12, out productionRate);
+            if (GetSecondaryControlPoints(prefab, ref startPoint, ref middlePoint, ref endPoint))
             {
+                int num13;
+                toolErrors |= CreateNode(prefab, startPoint, middlePoint, endPoint, m_nodePositionsSimulation, 1000, true, false, true, flag4, false, this.m_switchingDir, 0, out num10, out num11, out num13, out productionRate);
+                num12 += num13;
             }
-            try
+        }
+        else if (this.m_controlPointCount == 1)
+        {
+            if (Vector3.SqrMagnitude(position - this.m_controlPoints[this.m_controlPointCount].m_position) > 1f)
             {
-                this.m_buildErrors = errors;
-                this.m_constructionCost = !needMoney ? 0 : num15;
-                this.m_productionRate = num16;
+                this.m_lengthChanging = true;
             }
-            finally
+            NetTool.ControlPoint middlePoint2 = this.m_controlPoints[1];
+            if ((this.m_mode != NetTool.Mode.Curved && this.m_mode != NetTool.Mode.Freeform) || middlePoint2.m_node != 0 || middlePoint2.m_segment != 0)
             {
-                Monitor.Exit(this.m_cacheLock);
+                middlePoint2.m_node = 0;
+                middlePoint2.m_segment = 0;
+                middlePoint2.m_position = (this.m_controlPoints[0].m_position + this.m_controlPoints[1].m_position) * 0.5f;
+                ushort num14;
+                ushort num15;
+                toolErrors = CreateNode(prefab, this.m_controlPoints[this.m_controlPointCount - 1], middlePoint2, this.m_controlPoints[this.m_controlPointCount], m_nodePositionsSimulation, 1000, true, false, true, flag4, false, this.m_switchingDir, 0, out num14, out num15, out num12, out productionRate);
             }
-            if (((this.m_mode == NetTool.Mode.Upgrade) && this.m_upgrading) && ((this.m_controlPointCount == 2) && (this.m_buildErrors == ToolBase.ToolErrors.None)))
+            else
             {
-                this.CreateNodeImpl(this.m_switchingDir);
+                this.m_toolController.ClearColliding();
+                toolErrors = ToolBase.ToolErrors.None;
+                num12 = 0;
+                productionRate = 0;
             }
+        }
+        else
+        {
+            this.m_toolController.ClearColliding();
+            toolErrors = ToolBase.ToolErrors.None;
+            num12 = 0;
+            productionRate = 0;
+        }
+        if (flag)
+        {
+            toolErrors |= ToolBase.ToolErrors.RaycastFailed;
+        }
+        while (!Monitor.TryEnter(this.m_cacheLock, SimulationManager.SYNCHRONIZE_TIMEOUT))
+        {
+        }
+        try
+        {
+            this.m_buildErrors = toolErrors;
+            this.m_constructionCost = ((!flag4) ? 0 : num12);
+            this.m_productionRate = productionRate;
+        }
+        finally
+        {
+            Monitor.Exit(this.m_cacheLock);
+        }
+        if (this.m_mode == NetTool.Mode.Upgrade && this.m_upgrading && this.m_controlPointCount == 2 && this.m_buildErrors == ToolBase.ToolErrors.None)
+        {
+            this.CreateNodeImpl(this.m_switchingDir);
         }
     }
 
