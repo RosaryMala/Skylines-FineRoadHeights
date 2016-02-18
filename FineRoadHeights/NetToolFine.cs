@@ -59,7 +59,7 @@ public static class NetAIExtension
             return roadAI.GetInfo(minElevation, maxElevation, length, incoming, outgoing, curved, enableDouble, ref errors);
         }
         TrainTrackAI trainTrackAI = AI as TrainTrackAI;
-        if(trainTrackAI != null)
+        if (trainTrackAI != null)
         {
             switch (NetToolFine.currentBuildMode)
             {
@@ -103,7 +103,7 @@ public class NetToolFine : ToolBase
         Elevated,
         Bridge
     }
-    public static CurrentBuildMode currentBuildMode{get; private set;}
+    public static CurrentBuildMode currentBuildMode { get; private set; }
     private static float m_terrainStep = 3.0f;
     public static float TerrainStep
     {
@@ -570,12 +570,12 @@ public class NetToolFine : ToolBase
             for (int i = 0; i < 8; i++)
             {
                 ushort segment = instance.m_nodes.m_buffer[node].GetSegment(i);
-                if ((segment != 0) && ((segmentMask[segment >> 6] & (((ulong) 1L) << segment)) == 0))
+                if ((segment != 0) && ((segmentMask[segment >> 6] & (((ulong)1L) << segment)) == 0))
                 {
                     return;
                 }
             }
-            buildingMask[building >> 6] &= (ulong) ~(((long) 1L) << building);
+            buildingMask[building >> 6] &= (ulong)~(((long)1L) << building);
         }
     }
 
@@ -788,8 +788,8 @@ public class NetToolFine : ToolBase
             {
                 if (collidingSegmentBuffer != null)
                 {
-                    collidingSegmentBuffer[startSegment >> 6] |= ((ulong) 1L) << startSegment;
-                    collidingSegmentBuffer[endSegment >> 6] |= ((ulong) 1L) << endSegment;
+                    collidingSegmentBuffer[startSegment >> 6] |= ((ulong)1L) << startSegment;
+                    collidingSegmentBuffer[endSegment >> 6] |= ((ulong)1L) << endSegment;
                 }
                 flag = false;
             }
@@ -801,7 +801,7 @@ public class NetToolFine : ToolBase
             {
                 if (collidingSegmentBuffer != null)
                 {
-                    collidingSegmentBuffer[startSegment >> 6] |= ((ulong) 1L) << startSegment;
+                    collidingSegmentBuffer[startSegment >> 6] |= ((ulong)1L) << startSegment;
                 }
                 flag = false;
             }
@@ -813,7 +813,7 @@ public class NetToolFine : ToolBase
             {
                 if (collidingSegmentBuffer != null)
                 {
-                    collidingSegmentBuffer[endSegment >> 6] |= ((ulong) 1L) << endSegment;
+                    collidingSegmentBuffer[endSegment >> 6] |= ((ulong)1L) << endSegment;
                 }
                 flag = false;
             }
@@ -832,7 +832,7 @@ public class NetToolFine : ToolBase
                     {
                         if (collidingSegmentBuffer != null)
                         {
-                            collidingSegmentBuffer[segment >> 6] |= ((ulong) 1L) << segment;
+                            collidingSegmentBuffer[segment >> 6] |= ((ulong)1L) << segment;
                         }
                         flag = false;
                     }
@@ -1432,8 +1432,13 @@ public class NetToolFine : ToolBase
                             float minY = Mathf.Min(Mathf.Min(quad.a.y, quad.b.y), Mathf.Min(quad.c.y, quad.d.y)) + currentNodeInfo.m_minHeight;
                             float maxY = Mathf.Max(Mathf.Max(quad.a.y, quad.b.y), Mathf.Max(quad.c.y, quad.d.y)) + currentNodeInfo.m_maxHeight;
                             Quad2 quad2 = Quad2.XZ(quad);
-                            Singleton<NetManager>.instance.OverlapQuad(quad2, minY, maxY, currentNodeInfo.m_class.m_layer, ignoreNode, ignoreNode2, ignoreSegment, numArray);
-                            Singleton<BuildingManager>.instance.OverlapQuad(quad2, minY, maxY, currentNodeInfo.m_class.m_layer, ignoreBuilding, ignoreNode, ignoreNode2, numArray2);
+                            ItemClass.CollisionType collisionType = ItemClass.CollisionType.Elevated;
+                            if (currentNodeInfo.m_flattenTerrain)
+                                collisionType = ItemClass.CollisionType.Terrain;
+                            else if (currentNodeInfo.m_netAI.IsUnderground())
+                                collisionType = ItemClass.CollisionType.Underground;
+                            Singleton<NetManager>.instance.OverlapQuad(quad2, minY, maxY, collisionType, currentNodeInfo.m_class.m_layer, ignoreNode, ignoreNode2, ignoreSegment, numArray);
+                            Singleton<BuildingManager>.instance.OverlapQuad(quad2, minY, maxY, collisionType, currentNodeInfo.m_class.m_layer, ignoreBuilding, ignoreNode, ignoreNode2, numArray2);
                             if (test)
                             {
                                 if ((properties.m_mode & ItemClass.Availability.AssetEditor) != ItemClass.Availability.None)
@@ -1961,7 +1966,7 @@ public class NetToolFine : ToolBase
             node = 0;
         }
     }
-    
+
     //New in 1.1.0
     private static bool GetSecondaryControlPoints(NetInfo info, ref NetTool.ControlPoint startPoint, ref NetTool.ControlPoint middlePoint, ref NetTool.ControlPoint endPoint)
     {
@@ -2039,7 +2044,7 @@ public class NetToolFine : ToolBase
                     bool flag3 = vector.sqrMagnitude >= 10000f;
                     if (flag && flag3)
                     {
-                        segment.GetClosestPositionAndDirection((Vector3) ((position + node3.m_position) * 0.5f), out vector4, out vector5);
+                        segment.GetClosestPositionAndDirection((Vector3)((position + node3.m_position) * 0.5f), out vector4, out vector5);
                         if (flag2)
                         {
                             vector5 = -vector5;
@@ -2172,7 +2177,7 @@ public class NetToolFine : ToolBase
                 }
             }
         }
-        else if(current.type == EventType.KeyDown && current.keyCode == KeyCode.Tab)
+        else if (current.type == EventType.KeyDown && current.keyCode == KeyCode.Tab)
         {
             switch (currentBuildMode)
             {
@@ -2385,7 +2390,7 @@ public class NetToolFine : ToolBase
                     point4 = this.m_cachedControlPoints[1];
                     point4.m_node = 0;
                     point4.m_segment = 0;
-                    point4.m_position = (Vector3) ((this.m_cachedControlPoints[0].m_position + this.m_cachedControlPoints[1].m_position) * 0.5f);
+                    point4.m_position = (Vector3)((this.m_cachedControlPoints[0].m_position + this.m_cachedControlPoints[1].m_position) * 0.5f);
                     point4.m_elevation = (this.m_cachedControlPoints[0].m_elevation + this.m_cachedControlPoints[1].m_elevation) * 0.5f;
                 }
                 else
@@ -2413,20 +2418,20 @@ public class NetToolFine : ToolBase
             position.y += 0.15f;
             Quaternion identity = Quaternion.identity;
             float vScale = 0.05f;
-            Vector3 vector = (Vector3) (new Vector3(direction.z, 0f, -direction.x) * info.m_halfWidth);
+            Vector3 vector = (Vector3)(new Vector3(direction.z, 0f, -direction.x) * info.m_halfWidth);
             Vector3 startPos = position + vector;
             Vector3 vector3 = position - vector;
             Vector3 endPos = vector3;
             Vector3 vector5 = startPos;
-            float num2 = Mathf.Min((float) (info.m_halfWidth * 1.333333f), (float) 16f);
-            Vector3 vector6 = startPos - ((Vector3) (direction * num2));
-            Vector3 vector7 = endPos - ((Vector3) (direction * num2));
-            Vector3 vector8 = vector3 - ((Vector3) (direction * num2));
-            Vector3 vector9 = vector5 - ((Vector3) (direction * num2));
-            Vector3 vector10 = startPos + ((Vector3) (direction * num2));
-            Vector3 vector11 = endPos + ((Vector3) (direction * num2));
-            Vector3 vector12 = vector3 + ((Vector3) (direction * num2));
-            Vector3 vector13 = vector5 + ((Vector3) (direction * num2));
+            float num2 = Mathf.Min((float)(info.m_halfWidth * 1.333333f), (float)16f);
+            Vector3 vector6 = startPos - ((Vector3)(direction * num2));
+            Vector3 vector7 = endPos - ((Vector3)(direction * num2));
+            Vector3 vector8 = vector3 - ((Vector3)(direction * num2));
+            Vector3 vector9 = vector5 - ((Vector3)(direction * num2));
+            Vector3 vector10 = startPos + ((Vector3)(direction * num2));
+            Vector3 vector11 = endPos + ((Vector3)(direction * num2));
+            Vector3 vector12 = vector3 + ((Vector3)(direction * num2));
+            Vector3 vector13 = vector5 + ((Vector3)(direction * num2));
             Matrix4x4 matrixx = NetSegment.CalculateControlMatrix(startPos, vector6, vector7, endPos, startPos, vector6, vector7, endPos, position, vScale);
             Matrix4x4 matrixx2 = NetSegment.CalculateControlMatrix(vector3, vector12, vector13, vector5, vector3, vector12, vector13, vector5, position, vScale);
             Matrix4x4 matrixx3 = NetSegment.CalculateControlMatrix(startPos, vector10, vector11, endPos, startPos, vector10, vector11, endPos, position, vScale);
@@ -2621,7 +2626,7 @@ public class NetToolFine : ToolBase
                     {
                         for (int j = 0; j <= num8; j++)
                         {
-                            Vector3 vector8 = vector5 + ((Vector3) (vector6 * (lengthSnap * j)));
+                            Vector3 vector8 = vector5 + ((Vector3)(vector6 * (lengthSnap * j)));
                             Segment3 segment3 = new Segment3(vector8 + vector7, vector8 - vector7);
                             Singleton<ToolManager>.instance.m_drawCallData.m_overlayCalls++;
                             Singleton<RenderManager>.instance.OverlayEffect.DrawSegment(cameraInfo, color, segment3, 0f, 0f, -1f, 1280f, false, true);
@@ -2656,12 +2661,12 @@ public class NetToolFine : ToolBase
             NetManager instance = Singleton<NetManager>.instance;
             startPosition.y += 0.15f;
             endPosition.y += 0.15f;
-            Vector3 transform = (Vector3) ((startPosition + endPosition) * 0.5f);
+            Vector3 transform = (Vector3)((startPosition + endPosition) * 0.5f);
             Quaternion identity = Quaternion.identity;
-            Vector3 vector2 = (Vector3) (new Vector3(startDirection.z, 0f, -startDirection.x) * info.m_halfWidth);
+            Vector3 vector2 = (Vector3)(new Vector3(startDirection.z, 0f, -startDirection.x) * info.m_halfWidth);
             Vector3 startPos = startPosition - vector2;
             Vector3 vector4 = startPosition + vector2;
-            vector2 = (Vector3) (new Vector3(endDirection.z, 0f, -endDirection.x) * info.m_halfWidth);
+            vector2 = (Vector3)(new Vector3(endDirection.z, 0f, -endDirection.x) * info.m_halfWidth);
             Vector3 endPos = endPosition - vector2;
             Vector3 vector6 = endPosition + vector2;
             NetSegment.CalculateMiddlePoints(startPos, startDirection, endPos, -endDirection, smoothStart, smoothEnd, out vector7, out vector8);
@@ -3051,7 +3056,7 @@ public class NetToolFine : ToolBase
     private void Snap(NetInfo info, ref Vector3 point, ref Vector3 direction, Vector3 refPoint, float refAngle)
     {
         direction = new Vector3(Mathf.Cos(refAngle), 0f, Mathf.Sin(refAngle));
-        Vector3 vector = (Vector3) (direction * 8f);
+        Vector3 vector = (Vector3)(direction * 8f);
         Vector3 vector2 = new Vector3(vector.z, 0f, -vector.x);
         if (info.m_halfWidth <= 4f)
         {
@@ -3104,7 +3109,7 @@ public class NetToolFine : ToolBase
         ushort num3 = 0;
         if (Singleton<NetManager>.instance.CreateNode(out node, ref Singleton<SimulationManager>.instance.m_randomizer, info, position, buildIndex))
         {
-            Singleton<NetManager>.instance.m_nodes.m_buffer[node].m_elevation = (byte) ((node2.m_elevation + node3.m_elevation) / 2);
+            Singleton<NetManager>.instance.m_nodes.m_buffer[node].m_elevation = (byte)((node2.m_elevation + node3.m_elevation) / 2);
             if (segment2.m_startNode != 0)
             {
                 if (Singleton<NetManager>.instance.CreateSegment(out num2, ref Singleton<SimulationManager>.instance.m_randomizer, info, segment2.m_startNode, node, segment2.m_startDirection, -vector2, buildIndex, Singleton<SimulationManager>.instance.m_currentBuildIndex, (segment2.m_flags & NetSegment.Flags.Invert) != NetSegment.Flags.None))
@@ -3156,15 +3161,19 @@ public class NetToolFine : ToolBase
 
     private static ToolBase.ToolErrors TestNodeBuilding(BuildingInfo info, Vector3 position, Vector3 direction, ushort ignoreNode, ushort ignoreSegment, ushort ignoreBuilding, bool test, ulong[] collidingSegmentBuffer, ulong[] collidingBuildingBuffer)
     {
-        Vector2 vector = (Vector2) (new Vector2(direction.x, direction.z) * ((info.m_cellLength * 4f) - 0.8f));
-        Vector2 vector2 = (Vector2) (new Vector2(direction.z, -direction.x) * ((info.m_cellWidth * 4f) - 0.8f));
+        Vector2 vector = (Vector2)(new Vector2(direction.x, direction.z) * ((info.m_cellLength * 4f) - 0.8f));
+        Vector2 vector2 = (Vector2)(new Vector2(direction.z, -direction.x) * ((info.m_cellWidth * 4f) - 0.8f));
         if (info.m_circular)
         {
-            vector2 = (Vector2) (vector2 * 0.7f);
-            vector = (Vector2) (vector * 0.7f);
+            vector2 = (Vector2)(vector2 * 0.7f);
+            vector = (Vector2)(vector * 0.7f);
         }
+        ItemClass.CollisionType collisionType = ItemClass.CollisionType.Terrain;
+        if (info.m_class.m_layer == ItemClass.Layer.WaterPipes)
+            collisionType = ItemClass.CollisionType.Underground;
         Vector2 vector3 = VectorUtils.XZ(position);
-        Quad2 quad = new Quad2 {
+        Quad2 quad = new Quad2
+        {
             a = (vector3 - vector2) - vector,
             b = (vector3 - vector2) + vector,
             c = (vector3 + vector2) + vector,
@@ -3173,8 +3182,8 @@ public class NetToolFine : ToolBase
         ToolBase.ToolErrors none = ToolBase.ToolErrors.None;
         float minY = Mathf.Min(position.y, Singleton<TerrainManager>.instance.SampleRawHeightSmooth(position));
         float maxY = position.y + info.m_generatedInfo.m_size.y;
-        Singleton<NetManager>.instance.OverlapQuad(quad, minY, maxY, info.m_class.m_layer, ignoreNode, 0, ignoreSegment, collidingSegmentBuffer);
-        Singleton<BuildingManager>.instance.OverlapQuad(quad, minY, maxY, info.m_class.m_layer, ignoreBuilding, ignoreNode, 0, collidingBuildingBuffer);
+        Singleton<NetManager>.instance.OverlapQuad(quad, minY, maxY, collisionType, info.m_class.m_layer, ignoreNode, 0, ignoreSegment, collidingSegmentBuffer);
+        Singleton<BuildingManager>.instance.OverlapQuad(quad, minY, maxY, collisionType, info.m_class.m_layer, ignoreBuilding, ignoreNode, 0, collidingBuildingBuffer);
         if ((Singleton<ToolManager>.instance.m_properties.m_mode & ItemClass.Availability.AssetEditor) != ItemClass.Availability.None)
         {
             float num3 = 256f;
@@ -3253,7 +3262,7 @@ public class NetToolFine : ToolBase
 
         public bool MoveNext()
         {
-            uint num = (uint) this.SPC;
+            uint num = (uint)this.SPC;
             this.SPC = -1;
             switch (num)
             {
@@ -3330,7 +3339,7 @@ public class NetToolFine : ToolBase
 
         public bool MoveNext()
         {
-            uint num = (uint) this.SPC;
+            uint num = (uint)this.SPC;
             this.SPC = -1;
             switch (num)
             {
@@ -3406,7 +3415,7 @@ public class NetToolFine : ToolBase
 
         public bool MoveNext()
         {
-            uint num = (uint) this.SPC;
+            uint num = (uint)this.SPC;
             this.SPC = -1;
             switch (num)
             {
@@ -3479,7 +3488,7 @@ public class NetToolFine : ToolBase
 
         public bool MoveNext()
         {
-            uint num = (uint) this.SPC;
+            uint num = (uint)this.SPC;
             this.SPC = -1;
             switch (num)
             {
@@ -3559,7 +3568,7 @@ public class NetToolFine : ToolBase
 
         public bool MoveNext()
         {
-            uint num = (uint) this.SPC;
+            uint num = (uint)this.SPC;
             this.SPC = -1;
             switch (num)
             {
