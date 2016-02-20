@@ -2172,7 +2172,27 @@ public class NetToolFine : ToolBase
                 }
             }
         }
-        else if(current.type == EventType.KeyDown && current.keyCode == KeyCode.Tab)
+        else if (current.type == EventType.KeyDown && current.keyCode == KeyCode.LeftArrow && current.control)
+        {
+            switch (currentBuildMode)
+            {
+                case CurrentBuildMode.Normal:
+                    currentBuildMode = CurrentBuildMode.Bridge;
+                    break;
+                case CurrentBuildMode.Ground:
+                    currentBuildMode = CurrentBuildMode.Normal;
+                    break;
+                case CurrentBuildMode.Elevated:
+                    currentBuildMode = CurrentBuildMode.Ground;
+                    break;
+                case CurrentBuildMode.Bridge:
+                    currentBuildMode = CurrentBuildMode.Elevated;
+                    break;
+                default:
+                    break;
+            }
+        }
+        else if (current.type == EventType.KeyDown && current.keyCode == KeyCode.RightArrow && current.control)
         {
             switch (currentBuildMode)
             {
