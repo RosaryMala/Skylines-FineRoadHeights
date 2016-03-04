@@ -2145,7 +2145,7 @@ public class NetToolFine : ToolBase
     }
 
     //Modified
-    protected override void OnToolGUI()
+    protected override void OnToolGUI(UnityEngine.Event e)
     {
         bool isInsideUI = base.m_toolController.IsInsideUI;
         UnityEngine.Event current = UnityEngine.Event.current;
