@@ -23,9 +23,9 @@ public sealed class PublicTransportFinePanel : GeneratedScrollPanel
     {
       if (visible)
         return;
-      this.roadsOptionPanel.Hide();
-      this.tracksOptionPanel.Hide();
-      this.tunnelsOptionPanel.Hide();
+        this.HideRoadsOptionPanel();
+      this.HideTracksOptionPanel();
+      this.HideTunnelsOptionPanel();
     });
     base.Start();
   }
@@ -47,12 +47,9 @@ public sealed class PublicTransportFinePanel : GeneratedScrollPanel
       BuildingTool buildingTool = ToolsModifierControl.SetTool<BuildingTool>();
       if ((UnityEngine.Object) buildingTool != (UnityEngine.Object) null)
       {
-        if ((UnityEngine.Object) this.roadsOptionPanel != (UnityEngine.Object) null)
-          this.roadsOptionPanel.isVisible = false;
-        if ((UnityEngine.Object) this.tunnelsOptionPanel != (UnityEngine.Object) null)
-          this.tunnelsOptionPanel.isVisible = false;
-        if ((UnityEngine.Object) this.tracksOptionPanel != (UnityEngine.Object) null)
-          this.tracksOptionPanel.isVisible = false;
+                this.HideRoadsOptionPanel();
+                this.HideTunnelsOptionPanel();
+                this.HideTracksOptionPanel();
         buildingTool.m_prefab = buildingInfo;
         buildingTool.m_relocate = 0;
       }
@@ -62,12 +59,9 @@ public sealed class PublicTransportFinePanel : GeneratedScrollPanel
       TransportTool transportTool = ToolsModifierControl.SetTool<TransportTool>();
       if ((UnityEngine.Object) transportTool != (UnityEngine.Object) null)
       {
-        if ((UnityEngine.Object) this.roadsOptionPanel != (UnityEngine.Object) null)
-          this.roadsOptionPanel.isVisible = false;
-        if ((UnityEngine.Object) this.tunnelsOptionPanel != (UnityEngine.Object) null)
-          this.tunnelsOptionPanel.isVisible = false;
-        if ((UnityEngine.Object) this.tracksOptionPanel != (UnityEngine.Object) null)
-          this.tracksOptionPanel.isVisible = false;
+                this.HideRoadsOptionPanel();
+                this.HideTunnelsOptionPanel();
+                this.HideTracksOptionPanel();
         transportTool.m_prefab = transportInfo;
       }
     }
@@ -77,12 +71,9 @@ public sealed class PublicTransportFinePanel : GeneratedScrollPanel
     if (!((UnityEngine.Object) netTool != (UnityEngine.Object) null))
       return;
     ItemClass.SubService subService = netInfo.GetSubService();
-    if (subService == ItemClass.SubService.PublicTransportMetro && (UnityEngine.Object) this.tunnelsOptionPanel != (UnityEngine.Object) null)
-      this.tunnelsOptionPanel.isVisible = true;
-    else if (subService == ItemClass.SubService.PublicTransportTrain && (UnityEngine.Object) this.tracksOptionPanel != (UnityEngine.Object) null)
-      this.tracksOptionPanel.isVisible = true;
-    else if ((UnityEngine.Object) this.roadsOptionPanel != (UnityEngine.Object) null)
-      this.roadsOptionPanel.isVisible = true;
+        this.ShowTunnelsOptionPanel();
+        this.ShowRoadsOptionPanel();
+        this.ShowTracksOptionPanel();
     netTool.m_prefab = netInfo;
   }
 }
