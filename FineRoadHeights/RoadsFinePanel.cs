@@ -32,7 +32,7 @@ public sealed class RoadsFinePanel : GeneratedScrollPanel
     {
       if (visible)
         return;
-      this.roadsOptionPanel.Hide();
+        this.HideRoadsOptionPanel();
     });
     base.Start();
   }
@@ -72,16 +72,14 @@ public sealed class RoadsFinePanel : GeneratedScrollPanel
     BuildingInfo buildingInfo = objectUserData as BuildingInfo;
     if ((UnityEngine.Object) netInfo != (UnityEngine.Object) null)
     {
-      if ((UnityEngine.Object) this.roadsOptionPanel != (UnityEngine.Object) null)
-        this.roadsOptionPanel.Show();
+      this.ShowRoadsOptionPanel();
       NetToolFine netTool = ToolsModifierControl.SetTool<NetToolFine>();
       if ((UnityEngine.Object) netTool != (UnityEngine.Object) null)
         netTool.m_prefab = netInfo;
     }
     if (!((UnityEngine.Object) buildingInfo != (UnityEngine.Object) null))
       return;
-    if ((UnityEngine.Object) this.roadsOptionPanel != (UnityEngine.Object) null)
-      this.roadsOptionPanel.Hide();
+    this.HideRoadsOptionPanel();
     BuildingTool buildingTool = ToolsModifierControl.SetTool<BuildingTool>();
     if (!((UnityEngine.Object) buildingTool != (UnityEngine.Object) null))
       return;

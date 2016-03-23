@@ -15,7 +15,7 @@ public sealed class BeautificationFinePanel : GeneratedScrollPanel
         {
             if (!visible)
             {
-                base.pathsOptionPanel.Hide();
+                this.HidePathsOptionPanel();
             }
         };
         base.Start();
@@ -37,10 +37,7 @@ public sealed class BeautificationFinePanel : GeneratedScrollPanel
             BuildingTool buildingTool = ToolsModifierControl.SetTool<BuildingTool>();
             if (buildingTool != null)
             {
-                if (base.pathsOptionPanel != null)
-                {
-                    base.pathsOptionPanel.Hide();
-                }
+                this.HidePathsOptionPanel();
                 buildingTool.m_prefab = buildingInfo;
                 buildingTool.m_relocate = 0;
             }
@@ -50,10 +47,7 @@ public sealed class BeautificationFinePanel : GeneratedScrollPanel
             NetToolFine netTool = ToolsModifierControl.SetTool<NetToolFine>();
             if (netTool != null)
             {
-                if (base.pathsOptionPanel != null)
-                {
-                    base.pathsOptionPanel.Show();
-                }
+                this.HidePathsOptionPanel();
                 netTool.m_prefab = netInfo;
             }
         }
@@ -62,10 +56,8 @@ public sealed class BeautificationFinePanel : GeneratedScrollPanel
             TreeTool treeTool = ToolsModifierControl.SetTool<TreeTool>();
             if (treeTool != null)
             {
-                if (base.pathsOptionPanel != null)
-                {
-                    base.pathsOptionPanel.Hide();
-                }
+                this.HidePathsOptionPanel();
+  
                 treeTool.m_prefab = treeInfo;
                 treeTool.m_mode = TreeTool.Mode.Single;
             }
@@ -75,10 +67,8 @@ public sealed class BeautificationFinePanel : GeneratedScrollPanel
             PropTool propTool = ToolsModifierControl.SetTool<PropTool>();
             if (propTool != null)
             {
-                if (base.pathsOptionPanel != null)
-                {
-                    base.pathsOptionPanel.Hide();
-                }
+                this.HidePathsOptionPanel();
+
                 propTool.m_prefab = propInfo;
                 propTool.m_mode = PropTool.Mode.Single;
             }

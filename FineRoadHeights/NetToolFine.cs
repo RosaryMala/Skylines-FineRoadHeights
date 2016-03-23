@@ -1670,7 +1670,7 @@ public class NetToolFine : ToolBase
                 {
                     toolErrors |= ToolBase.ToolErrors.ObjectCollision;
                 }
-                if (BuildingTool.CheckCollidingBuildings(numArray2, numArray))
+                if (BuildingTool.CheckCollidingBuildings(null, numArray2, numArray))
                 {
                     toolErrors |= ToolBase.ToolErrors.ObjectCollision;
                 }
