@@ -47,7 +47,7 @@ public sealed class BeautificationFinePanel : GeneratedScrollPanel
             NetToolFine netTool = ToolsModifierControl.SetTool<NetToolFine>();
             if (netTool != null)
             {
-                this.HidePathsOptionPanel();
+                this.ShowPathsOptionPanel();
                 netTool.m_prefab = netInfo;
             }
         }
